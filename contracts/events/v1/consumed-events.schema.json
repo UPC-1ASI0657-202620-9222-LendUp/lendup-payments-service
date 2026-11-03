@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lendup.example/contracts/events/v1/consumed-events.schema.json",
+  "title": "Events consumed by Payments v1",
+  "description": "Envelope estándar de lendup.domain.events. ReservaConfirmada y ReservaCancelada ya los publica Reservas. Los demás son contratos PROPUESTOS por Pagos: su productor (monolito) aún no existe y sus routing keys son configurables.",
+  "type": "object",
+  "required": ["event_id", "event_type", "event_version", "aggregate_id", "occurred_at", "correlation_id", "payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_type": { "type": "string" },
+    "event_version": { "const": 1 },
+    "aggregate_version": { "type": "integer", "minimum": 0 },
+    "aggregate_id": { "type": "string", "format": "uuid" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string" },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "ReservaConfirmada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/reservaConfirmada" } } } },
+    { "if": { "properties": { "event_type": { "const": "ReservaCancelada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/reservaCancelada" } } } },
+    { "if": { "properties": { "event_type": { "const": "PrestamoCreado" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamoCreado" } } } },
+    { "if": { "properties": { "event_type": { "enum": ["PrestamoActivado", "PrestamoFinalizado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamo" } } } },
+    { "if": { "properties": { "event_type": { "const": "ExtensionAceptada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/extensionAceptada" } } } },
+    { "if": { "properties": { "event_type": { "const": "IncidenciaResuelta" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/incidenciaResuelta" } } } }
+  ],
+  "$defs": {
+    "reservaConfirmada": {
+      "description": "reservas.confirmada.v1 (Reservas, disponible). Campos usados por Pagos.",
+      "type": "object",
+      "required": ["reserva_id", "prestamista_usuario_id", "prestatario_usuario_id", "desde", "hasta", "tarifa_diaria_acordada", "moneda_acordada"],
+      "properties": {
+        "reserva_id": { "type": "string", "format": "uuid" },
+        "prestamista_usuario_id": { "type": "string", "format": "uuid" },
+        "prestatario_usuario_id": { "type": "string", "format": "uuid" },
+        "desde": { "type": "string", "format": "local-date-time" },
+        "hasta": { "type": "string", "format": "local-date-time" },
+        "tarifa_diaria_acordada": { "type": "number", "exclusiveMinimum": 0 },
+        "garantia_monetaria_acordada": { "type": ["number", "null"], "minimum": 0 },
+        "moneda_acordada": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    },
+    "reservaCancelada": {
+      "description": "reservas.cancelada.v1 (Reservas, disponible).",
+      "type": "object", "required": ["reserva_id"],
+      "properties": { "reserva_id": { "type": "string", "format": "uuid" }, "solicitud_id": { "type": "string", "format": "uuid" } }
+    },
+    "prestamoCreado": {
+      "description": "PENDIENTE. Default LOAN_CREATED_ROUTING_KEY=prestamos.creado.v1. Relaciona el préstamo con la reserva.",
+      "type": "object", "required": ["prestamo_id", "reserva_id"],
+      "properties": { "prestamo_id": { "type": "string", "format": "uuid" }, "reserva_id": { "type": "string", "format": "uuid" } }
+    },
+    "prestamo": {
+      "description": "PENDIENTE. PrestamoActivado (LOAN_ACTIVATED_ROUTING_KEY=prestamos.activado.v1) y PrestamoFinalizado (LOAN_FINISHED_ROUTING_KEY=prestamos.finalizado.v1).",
+      "type": "object", "required": ["prestamo_id"],
+      "properties": { "prestamo_id": { "type": "string", "format": "uuid" } }
+    },
+    "extensionAceptada": {
+      "description": "PENDIENTE. EXTENSION_ACCEPTED_ROUTING_KEY=prestamos.extension-aceptada.v1.",
+      "type": "object", "required": ["prestamo_id", "cambio_fecha_prestamo_id", "costo_adicional"],
+      "properties": {
+        "prestamo_id": { "type": "string", "format": "uuid" },
+        "cambio_fecha_prestamo_id": { "type": "string", "format": "uuid" },
+        "costo_adicional": { "type": "number", "exclusiveMinimum": 0 },
+        "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    },
+    "incidenciaResuelta": {
+      "description": "PENDIENTE. INCIDENT_RESOLVED_ROUTING_KEY=evidencias.incidencia-resuelta.v1. Valores de decisión iguales a incidencias.decision_garantia del monolito.",
+      "type": "object", "required": ["incidencia_id", "prestamo_id", "decision_garantia"],
+      "properties": {
+        "incidencia_id": { "type": "string", "format": "uuid" },
+        "prestamo_id": { "type": "string", "format": "uuid" },
+        "decision_garantia": { "enum": ["SIN_AFECTACION", "AFECTACION_PARCIAL", "AFECTACION_TOTAL"] },
+        "monto_garantia_afectado": { "type": ["number", "null"], "minimum": 0 },
+        "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    }
+  }
+}
