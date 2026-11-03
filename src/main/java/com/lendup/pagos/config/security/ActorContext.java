@@ -1,0 +1,7 @@
+package com.lendup.pagos.config.security;
+import com.lendup.pagos.application.exception.ForbiddenException; import com.lendup.pagos.application.port.out.IdentidadPort; import java.util.UUID; import org.springframework.security.core.Authentication; import org.springframework.security.core.context.SecurityContextHolder; import org.springframework.stereotype.Component; import org.springframework.web.context.request.RequestContextHolder; import org.springframework.web.context.request.ServletRequestAttributes;
+@Component public class ActorContext { private final IdentidadPort identidad; public ActorContext(IdentidadPort identidad){this.identidad=identidad;}
+  public UUID userId(){Authentication a=SecurityContextHolder.getContext().getAuthentication();if(a==null||!a.isAuthenticated()||!(a.getDetails() instanceof VerifiedToken))throw new ForbiddenException("Identidad no autenticada");return identidad.resolverUsuarioId(a.getName(),bearerToken());}
+  public boolean administrator(){Authentication a=SecurityContextHolder.getContext().getAuthentication();return a!=null&&a.getAuthorities().stream().anyMatch(x->x.getAuthority().equals("ROLE_ADMINISTRADOR"));}
+  private String bearerToken(){var attributes=RequestContextHolder.getRequestAttributes();if(!(attributes instanceof ServletRequestAttributes servlet))return "";String h=servlet.getRequest().getHeader("Authorization");return h!=null&&h.startsWith("Bearer ")?h.substring(7):"";}
+}

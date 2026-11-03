@@ -1,0 +1,136 @@
+openapi: 3.1.0
+info:
+  title: LendUp Payments API
+  version: 1.0.0
+  description: Pagos de tarifa y extensión, garantías monetarias y webhook de Mercado Pago (Checkout Pro). JSON en snake_case.
+servers: [{ url: /api/v1 }]
+security: [{ firebaseBearer: [] }]
+paths:
+  /medios-pago:
+    get:
+      operationId: listarMediosPago
+      tags: [Pagos]
+      responses:
+        '200': { description: Medios habilitados, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/MedioPago' } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+  /pagos:
+    post:
+      operationId: crearPago
+      tags: [Pagos]
+      description: Solo el prestatario. Crea la transacción PENDIENTE y devuelve checkout_url. La misma clave_idempotencia devuelve la misma transacción.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PaymentRequest' } } } }
+      responses:
+        '201': { description: Transacción PENDIENTE con checkout_url, content: { application/json: { schema: { $ref: '#/components/schemas/Transaccion' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /garantias:
+    post:
+      operationId: constituirGarantia
+      tags: [Garantías]
+      description: Solo el prestatario. 409 si la garantía ya está constituida o si el préstamo no requiere garantía.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GuaranteeRequest' } } } }
+      responses:
+        '201': { description: Cobro PENDIENTE con la garantía PENDIENTE y checkout_url, content: { application/json: { schema: { $ref: '#/components/schemas/Transaccion' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /prestamos/{id}/transacciones:
+    get:
+      operationId: listarTransacciones
+      tags: [Transacciones]
+      description: Solo participantes del préstamo.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Transacciones ordenadas por solicitada_en, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Transaccion' } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /webhooks/mercado-pago:
+    post:
+      operationId: recibirWebhookMercadoPago
+      tags: [Webhooks]
+      security: []
+      description: Público. Valida x-signature (HMAC-SHA256 de "id:{data.id};request-id:{x-request-id};ts:{ts};"), descarta duplicados y consulta el pago en Mercado Pago.
+      parameters:
+        - { name: x-signature, in: header, required: true, schema: { type: string, example: 'ts=1730473200,v1=hex' } }
+        - { name: x-request-id, in: header, required: true, schema: { type: string } }
+        - { name: data.id, in: query, schema: { type: string } }
+        - { name: type, in: query, schema: { type: string, example: payment } }
+      requestBody: { content: { application/json: { schema: { type: object, properties: { id: { type: integer }, type: { type: string }, action: { type: string }, data: { type: object, properties: { id: { type: string } } } } } } } }
+      responses:
+        '201': { description: 'Recibida', content: { application/json: { schema: { type: object, properties: { proveedor_evento_id: { type: string }, estado: { enum: [PROCESADA, IGNORADA, DUPLICADA] } } } } } }
+        '401': { description: Firma ausente o inválida (FIRMA_INVALIDA) }
+        '503': { description: Mercado Pago no respondió; el proveedor reintentará }
+components:
+  securitySchemes:
+    firebaseBearer: { type: http, scheme: bearer, bearerFormat: Firebase ID token }
+  responses:
+    Error:
+      description: Error con el formato del monolito
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+  schemas:
+    Error:
+      type: object
+      required: [status, error, message]
+      properties: { status: { type: integer }, error: { type: string, example: CONFLICTO_NEGOCIO }, message: { type: string }, timestamp: { type: string, format: date-time } }
+    MedioPago:
+      type: object
+      properties: { codigo: { type: string, example: MERCADO_PAGO }, nombre: { type: string, example: Mercado Pago }, estado: { type: string, example: ACTIVO } }
+    PaymentRequest:
+      type: object
+      required: [prestamo_id, tipo, monto, medio_pago_seleccionado, clave_idempotencia]
+      properties:
+        prestamo_id: { type: string, format: uuid }
+        cambio_fecha_prestamo_id: { type: string, format: uuid, description: Obligatorio para PAGO_EXTENSION }
+        tipo: { enum: [PAGO_TARIFA, PAGO_EXTENSION] }
+        monto: { type: number, example: 60.00, description: 'PAGO_TARIFA: tarifa diaria × bloques iniciados de 24 h (R26). PAGO_EXTENSION: costo de la extensión aceptada.' }
+        medio_pago_seleccionado: { type: string, example: MERCADO_PAGO }
+        clave_idempotencia: { type: string, maxLength: 150 }
+    GuaranteeRequest:
+      type: object
+      required: [prestamo_id]
+      properties:
+        prestamo_id: { type: string, format: uuid }
+        medio_pago_seleccionado: { type: string, example: MERCADO_PAGO }
+        clave_idempotencia: { type: string, maxLength: 150 }
+    Garantia:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        prestamo_id: { type: string, format: uuid }
+        monto_acordado: { type: number }
+        moneda: { type: string }
+        estado: { enum: [PENDIENTE, CONSTITUIDA, RETENIDA_POR_INCIDENCIA, DEVUELTA, AFECTADA_PARCIALMENTE, AFECTADA_TOTALMENTE, CANCELADA] }
+        monto_constituido: { type: number }
+        monto_afectado: { type: number }
+        monto_devuelto: { type: number }
+        constituida_en: { type: string, format: date-time }
+        cerrada_en: { type: string, format: date-time }
+        creada_en: { type: string, format: date-time }
+        actualizada_en: { type: string, format: date-time }
+    Transaccion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        prestamo_id: { type: string, format: uuid }
+        garantia_id: { type: string, format: uuid }
+        cambio_fecha_prestamo_id: { type: string, format: uuid }
+        incidencia_id: { type: string, format: uuid }
+        tipo: { enum: [PAGO_TARIFA, PAGO_EXTENSION, CONSTITUCION_GARANTIA, LIBERACION_TARIFA, DEVOLUCION_GARANTIA, RETENCION_GARANTIA, REEMBOLSO_TARIFA] }
+        estado: { enum: [PENDIENTE, CONFIRMADA, RECHAZADA, CANCELADA, FALLIDA] }
+        monto: { type: number }
+        moneda: { type: string }
+        comision_proveedor: { type: number }
+        medio_pago_seleccionado: { type: string }
+        referencia_proveedor: { type: string }
+        clave_idempotencia: { type: string }
+        checkout_url: { type: string, format: uri, description: Nuevo respecto al monolito. URL de Checkout Pro mientras la transacción está PENDIENTE. }
+        solicitada_en: { type: string, format: date-time }
+        confirmada_en: { type: string, format: date-time }
+        actualizada_en: { type: string, format: date-time }
+        garantia: { $ref: '#/components/schemas/Garantia', description: Solo en la respuesta de POST /garantias }
