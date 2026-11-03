@@ -1,0 +1,3 @@
+package com.lendup.pagos.infrastructure.client;
+import java.net.http.HttpClient; import java.time.Duration; import org.springframework.http.client.JdkClientHttpRequestFactory; import org.springframework.web.client.RestClient;
+final class RestClientFactory { private RestClientFactory(){} static RestClient create(String baseUrl,int connectMs,int readMs){HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofMillis(connectMs)).build();JdkClientHttpRequestFactory factory=new JdkClientHttpRequestFactory(client);factory.setReadTimeout(Duration.ofMillis(readMs));return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();} }

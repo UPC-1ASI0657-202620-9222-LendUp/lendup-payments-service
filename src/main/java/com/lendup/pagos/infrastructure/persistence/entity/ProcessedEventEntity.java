@@ -1,0 +1,3 @@
+package com.lendup.pagos.infrastructure.persistence.entity;
+import jakarta.persistence.*; import java.time.Instant; import java.util.UUID;
+@Entity @Table(name="processed_events") public class ProcessedEventEntity { @Id private UUID eventId; @Column(nullable=false) private String consumer; @Column(name="aggregate_id",nullable=false) private UUID aggregateId; @Column(name="aggregate_version",nullable=false) private long aggregateVersion; @Column(name="processed_at",nullable=false) private Instant processedAt; protected ProcessedEventEntity(){} public ProcessedEventEntity(UUID e,String c,UUID a,long v,Instant p){eventId=e;consumer=c;aggregateId=a;aggregateVersion=v;processedAt=p;} }

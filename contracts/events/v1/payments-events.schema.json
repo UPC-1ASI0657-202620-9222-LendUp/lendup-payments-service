@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lendup.example/contracts/events/v1/payments-events.schema.json",
+  "title": "LendUp Payments emitted event envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "event_version", "aggregate_version", "aggregate_id", "occurred_at", "correlation_id", "payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_type": { "enum": ["PagoConfirmado", "PagoRechazado", "GarantiaConstituida", "TarifaLiberada", "GarantiaDevuelta", "GarantiaRetenida", "ReembolsoProcesado"] },
+    "event_version": { "const": 1 },
+    "aggregate_version": { "type": "integer", "minimum": 1, "description": "Marca de tiempo en milisegundos del cambio; creciente por agregado." },
+    "aggregate_id": { "type": "string", "format": "uuid", "description": "transaccion_id para eventos de transacción; garantia_id para eventos Garantia*." },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string", "maxLength": 100 },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "enum": ["PagoConfirmado", "PagoRechazado", "ReembolsoProcesado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/transaccion" } } } },
+    { "if": { "properties": { "event_type": { "const": "TarifaLiberada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/tarifaLiberada" } } } },
+    { "if": { "properties": { "event_type": { "enum": ["GarantiaConstituida", "GarantiaDevuelta", "GarantiaRetenida"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/garantia" } } } }
+  ],
+  "$defs": {
+    "participantes": {
+      "type": "object",
+      "required": ["prestamo_id"],
+      "properties": {
+        "prestamo_id": { "type": "string", "format": "uuid" },
+        "reserva_id": { "type": "string", "format": "uuid" },
+        "prestatario_usuario_id": { "type": "string", "format": "uuid" },
+        "prestamista_usuario_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "transaccion": {
+      "allOf": [{ "$ref": "#/$defs/participantes" }],
+      "type": "object",
+      "required": ["transaccion_id", "tipo", "estado", "monto", "moneda"],
+      "properties": {
+        "transaccion_id": { "type": "string", "format": "uuid" },
+        "tipo": { "enum": ["PAGO_TARIFA", "PAGO_EXTENSION", "CONSTITUCION_GARANTIA", "LIBERACION_TARIFA", "DEVOLUCION_GARANTIA", "RETENCION_GARANTIA", "REEMBOLSO_TARIFA"] },
+        "estado": { "enum": ["PENDIENTE", "CONFIRMADA", "RECHAZADA", "CANCELADA", "FALLIDA"] },
+        "monto": { "type": "number", "exclusiveMinimum": 0 },
+        "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "garantia_id": { "type": "string", "format": "uuid" },
+        "cambio_fecha_prestamo_id": { "type": "string", "format": "uuid" },
+        "incidencia_id": { "type": "string", "format": "uuid" },
+        "comision_proveedor": { "type": "number", "minimum": 0 },
+        "referencia_proveedor": { "type": "string" },
+        "confirmada_en": { "type": "string", "format": "date-time" },
+        "motivo": { "type": "string", "description": "Solo PagoRechazado: status_detail de Mercado Pago." },
+        "referencia_reembolso": { "type": "string", "description": "Solo ReembolsoProcesado: id del reembolso en Mercado Pago." }
+      }
+    },
+    "tarifaLiberada": {
+      "allOf": [{ "$ref": "#/$defs/transaccion" }],
+      "type": "object",
+      "required": ["transaccion_pago_id", "comision_proveedor", "monto_neto_prestamista"],
+      "properties": {
+        "transaccion_pago_id": { "type": "string", "format": "uuid" },
+        "monto_neto_prestamista": { "type": "number" }
+      }
+    },
+    "garantia": {
+      "allOf": [{ "$ref": "#/$defs/participantes" }],
+      "type": "object",
+      "required": ["garantia_id", "transaccion_id", "estado_garantia", "moneda"],
+      "properties": {
+        "garantia_id": { "type": "string", "format": "uuid" },
+        "transaccion_id": { "type": "string", "format": "uuid" },
+        "estado_garantia": { "enum": ["PENDIENTE", "CONSTITUIDA", "RETENIDA_POR_INCIDENCIA", "DEVUELTA", "AFECTADA_PARCIALMENTE", "AFECTADA_TOTALMENTE", "CANCELADA"] },
+        "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "incidencia_id": { "type": "string", "format": "uuid" },
+        "monto_constituido": { "type": "number", "description": "GarantiaConstituida" },
+        "constituida_en": { "type": "string", "format": "date-time" },
+        "monto_devuelto": { "type": "number", "description": "GarantiaDevuelta: monto de esta devolución" },
+        "monto_devuelto_total": { "type": "number" },
+        "referencia_reembolso": { "type": "string" },
+        "decision_garantia": { "enum": ["SIN_AFECTACION", "AFECTACION_PARCIAL", "AFECTACION_TOTAL"], "description": "GarantiaRetenida" },
+        "monto_retenido": { "type": "number" },
+        "monto_afectado_total": { "type": "number" },
+        "saldo_garantia": { "type": "number" }
+      }
+    }
+  }
+}

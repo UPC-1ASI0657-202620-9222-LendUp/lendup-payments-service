@@ -1,0 +1,10 @@
+package com.lendup.pagos.domain.service;
+import static org.junit.jupiter.api.Assertions.*; import com.lendup.pagos.domain.model.*; import java.math.BigDecimal; import java.time.Instant; import java.util.UUID; import org.junit.jupiter.api.Test;
+class LiquidacionDeGarantiaServiceTest { private final LiquidacionDeGarantiaService service=new LiquidacionDeGarantiaService(); private final Instant now=Instant.now();
+  private Garantia garantia(){var g=Garantia.nueva(UUID.randomUUID(),new BigDecimal("50"),"PEN",now);g.constituir(new BigDecimal("50"),now);return g;}
+  @Test void sinAfectacionDevuelveTodo(){var l=service.liquidar(garantia(),DecisionGarantia.SIN_AFECTACION,BigDecimal.ZERO);assertEquals(new BigDecimal("0.00"),l.retencion());assertEquals(new BigDecimal("50.00"),l.devolucion());}
+  @Test void afectacionParcialRetieneYDevuelveElSaldo(){var l=service.liquidar(garantia(),DecisionGarantia.AFECTACION_PARCIAL,new BigDecimal("20"));assertEquals(new BigDecimal("20.00"),l.retencion());assertEquals(new BigDecimal("30.00"),l.devolucion());}
+  @Test void afectacionTotalRetieneTodoElSaldo(){var l=service.liquidar(garantia(),DecisionGarantia.AFECTACION_TOTAL,new BigDecimal("50"));assertEquals(new BigDecimal("50.00"),l.retencion());assertEquals(new BigDecimal("0.00"),l.devolucion());}
+  @Test void montoMayorAlSaldoSeLimitaAlSaldo(){var g=garantia();g.aplicarAfectacion(new BigDecimal("40"),now);var l=service.liquidar(g,DecisionGarantia.AFECTACION_PARCIAL,new BigDecimal("25"));assertEquals(new BigDecimal("10.00"),l.retencion());assertEquals(new BigDecimal("0.00"),l.devolucion());}
+  @Test void rechazaCombinacionesIncompatibles(){var g=garantia();assertThrows(IllegalArgumentException.class,()->service.liquidar(g,DecisionGarantia.SIN_AFECTACION,BigDecimal.ONE));assertThrows(IllegalArgumentException.class,()->service.liquidar(g,DecisionGarantia.AFECTACION_PARCIAL,BigDecimal.ZERO));assertThrows(IllegalArgumentException.class,()->service.liquidar(g,DecisionGarantia.AFECTACION_PARCIAL,new BigDecimal("-1")));}
+}
