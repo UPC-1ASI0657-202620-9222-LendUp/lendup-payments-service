@@ -1,0 +1,16 @@
+target/
+.idea/
+.vscode/
+*.iml
+.env
+.env.*
+!.env.example
+.secrets/
+firebase-service-account*.json
+service-account*.json
+*-firebase-adminsdk-*.json
+google-application-credentials*.json
+.m2-cache/
+.maven-home/
+*.log
+hs_err_pid*
