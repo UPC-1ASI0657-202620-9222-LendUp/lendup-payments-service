@@ -1,0 +1,921 @@
+{
+  "info": {
+    "name": "LendUp Payments Service",
+    "description": "Evidencias del Sprint 2 para lendup-payments-service. Orden sugerido: 1) Eventos simulados (ReservaConfirmada y PrestamoCreado) para crear la proyección; 2) Pagos y garantías; 3) Pagar en el checkout_url con un usuario de prueba de Mercado Pago, copiar el id del pago a mp_payment_id y enviar el webhook firmado; 4) Eventos de ciclo de vida para liberación, devolución, retención y reembolso. prestatario_usuario_id debe ser el usuario_id interno que Identidad devuelve para firebase_token.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8082/api/v1"
+    },
+    {
+      "key": "firebase_token",
+      "value": "PEGAR_ID_TOKEN_DE_FIREBASE"
+    },
+    {
+      "key": "prestatario_usuario_id",
+      "value": "66666666-6666-4666-8666-666666666666"
+    },
+    {
+      "key": "prestamista_usuario_id",
+      "value": "55555555-5555-4555-8555-555555555555"
+    },
+    {
+      "key": "reserva_id",
+      "value": "22222222-2222-4222-8222-222222222222"
+    },
+    {
+      "key": "prestamo_id",
+      "value": "c3333333-3333-4333-8333-333333333333"
+    },
+    {
+      "key": "cambio_fecha_prestamo_id",
+      "value": "88888888-8888-4888-8888-888888888888"
+    },
+    {
+      "key": "incidencia_id",
+      "value": "99999999-9999-4999-8999-999999999999"
+    },
+    {
+      "key": "transaccion_id",
+      "value": ""
+    },
+    {
+      "key": "checkout_url",
+      "value": ""
+    },
+    {
+      "key": "mp_payment_id",
+      "value": "PEGAR_ID_DEL_PAGO_EN_MERCADO_PAGO"
+    },
+    {
+      "key": "webhook_secret",
+      "value": "MISMO_VALOR_QUE_MERCADOPAGO_WEBHOOK_SECRET"
+    },
+    {
+      "key": "rabbit_url",
+      "value": "http://localhost:15673"
+    },
+    {
+      "key": "rabbit_user",
+      "value": "lendup_pagos"
+    },
+    {
+      "key": "rabbit_pass",
+      "value": "change-me"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "Readiness",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "http://localhost:8082/actuator/health/readiness"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Eventos simulados (RabbitMQ)",
+      "item": [
+        {
+          "name": "ReservaConfirmada (Reservas)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { reserva_id: pm.collectionVariables.get('reserva_id'), solicitud_id: pm.variables.replaceIn('{{$guid}}'), publicacion_id: pm.variables.replaceIn('{{$guid}}'), prestamista_usuario_id: pm.collectionVariables.get('prestamista_usuario_id'), prestatario_usuario_id: pm.collectionVariables.get('prestatario_usuario_id'), desde: '2026-11-10T09:00:00', hasta: '2026-11-12T09:00:01', tarifa_diaria_acordada: 20.00, garantia_monetaria_acordada: 50.00, moneda_acordada: 'PEN', lugar_intercambio_acordado: 'Campus' };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'ReservaConfirmada', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('reserva_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'reservas.confirmada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        },
+        {
+          "name": "PrestamoCreado (pendiente en Préstamos)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id'), reserva_id: pm.collectionVariables.get('reserva_id') };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'PrestamoCreado', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.creado.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        },
+        {
+          "name": "PrestamoActivado (pendiente)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id') };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'PrestamoActivado', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.activado.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        },
+        {
+          "name": "ExtensionAceptada (pendiente)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id'), cambio_fecha_prestamo_id: pm.collectionVariables.get('cambio_fecha_prestamo_id'), costo_adicional: 20.00, moneda: 'PEN' };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'ExtensionAceptada', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.extension-aceptada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        },
+        {
+          "name": "IncidenciaResuelta parcial (pendiente en Evidencias)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { incidencia_id: pm.collectionVariables.get('incidencia_id'), prestamo_id: pm.collectionVariables.get('prestamo_id'), decision_garantia: 'AFECTACION_PARCIAL', monto_garantia_afectado: 20.00, moneda: 'PEN' };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'IncidenciaResuelta', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('incidencia_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'evidencias.incidencia-resuelta.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        },
+        {
+          "name": "PrestamoFinalizado (pendiente)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id') };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'PrestamoFinalizado', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.finalizado.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        },
+        {
+          "name": "ReservaCancelada (Reservas)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { reserva_id: pm.collectionVariables.get('reserva_id'), solicitud_id: pm.variables.replaceIn('{{$guid}}') };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'ReservaCancelada', event_version: 1,",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('reserva_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'reservas.cancelada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Pagos y garantías",
+      "item": [
+        {
+          "name": "Listar medios de pago",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 con MERCADO_PAGO ACTIVO', () => { pm.response.to.have.status(200); const m = pm.response.json()[0]; pm.expect(m.codigo).to.eql('MERCADO_PAGO'); pm.expect(m.estado).to.eql('ACTIVO'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/medios-pago"
+          }
+        },
+        {
+          "name": "Constituir garantía",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 PENDIENTE con checkout_url', () => { pm.response.to.have.status(201); const b = pm.response.json(); pm.expect(b.garantia.estado).to.eql('PENDIENTE'); pm.expect(b.checkout_url).to.match(/^https:/); pm.collectionVariables.set('transaccion_id', b.id); pm.collectionVariables.set('checkout_url', b.checkout_url); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/garantias",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"garantia-{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Constituir garantía repetida (409 tras constituir)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 si sigue pendiente o 409 si ya está constituida', () => pm.expect([201, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/garantias",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pagar tarifa (60.00 = 20.00 × 3 bloques)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 PENDIENTE con checkout_url', () => { pm.response.to.have.status(201); const b = pm.response.json(); pm.expect(b.estado).to.eql('PENDIENTE'); pm.collectionVariables.set('transaccion_id', b.id); pm.collectionVariables.set('checkout_url', b.checkout_url); });",
+                  "console.log('Abrir en el navegador y pagar con un usuario de prueba:', pm.response.json().checkout_url);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/pagos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-postman-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pagar tarifa con la misma clave (idempotente)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Devuelve la misma transacción', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('transaccion_id')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/pagos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-postman-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pagar tarifa con monto incorrecto (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 SOLICITUD_INVALIDA', () => { pm.response.to.have.status(400); pm.expect(pm.response.json().error).to.eql('SOLICITUD_INVALIDA'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/pagos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 10,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pagar extensión",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 (requiere PrestamoActivado y ExtensionAceptada)', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/pagos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"cambio_fecha_prestamo_id\": \"{{cambio_fecha_prestamo_id}}\",\n  \"tipo\": \"PAGO_EXTENSION\",\n  \"monto\": 20,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-ext-{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Consultar transacciones del préstamo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 con lista', () => { pm.response.to.have.status(200); pm.expect(pm.response.json()).to.be.an('array'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/prestamos/{{prestamo_id}}/transacciones"
+          }
+        },
+        {
+          "name": "Sin token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/medios-pago"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Webhook de Mercado Pago",
+      "item": [
+        {
+          "name": "Webhook firmado",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Calcula x-signature igual que Mercado Pago: HMAC-SHA256 de 'id:{data.id};request-id:{x-request-id};ts:{ts};'",
+                  "const dataId = pm.collectionVariables.get('mp_payment_id');",
+                  "const requestId = pm.variables.replaceIn('{{$guid}}');",
+                  "const ts = Date.now().toString();",
+                  "const manifest = 'id:' + dataId.toLowerCase() + ';request-id:' + requestId + ';ts:' + ts + ';';",
+                  "const v1 = CryptoJS.HmacSHA256(manifest, pm.collectionVariables.get('webhook_secret')).toString(CryptoJS.enc.Hex);",
+                  "pm.variables.set('mp_request_id', requestId);",
+                  "pm.variables.set('mp_signature', 'ts=' + ts + ',v1=' + v1);",
+                  "pm.variables.set('mp_notification_id', Date.now().toString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 PROCESADA o DUPLICADA', () => { pm.response.to.have.status(201); pm.expect(['PROCESADA', 'DUPLICADA', 'IGNORADA']).to.include(pm.response.json().estado); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-signature",
+                "value": "{{mp_signature}}"
+              },
+              {
+                "key": "x-request-id",
+                "value": "{{mp_request_id}}"
+              }
+            ],
+            "url": "{{base_url}}/webhooks/mercado-pago?data.id={{mp_payment_id}}&type=payment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"id\": {{mp_notification_id}}, \"type\": \"payment\", \"action\": \"payment.updated\", \"live_mode\": false, \"data\": {\"id\": \"{{mp_payment_id}}\"}}"
+            },
+            "description": "Simula la notificación de Mercado Pago. El servicio consulta el pago real en Mercado Pago (mp_payment_id debe existir en tu cuenta de prueba) antes de cambiar estados."
+          }
+        },
+        {
+          "name": "Webhook con firma inválida (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 FIRMA_INVALIDA', () => { pm.response.to.have.status(401); pm.expect(pm.response.json().error).to.eql('FIRMA_INVALIDA'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-signature",
+                "value": "ts=1,v1=deadbeef"
+              },
+              {
+                "key": "x-request-id",
+                "value": "falso"
+              }
+            ],
+            "url": "{{base_url}}/webhooks/mercado-pago?data.id=123&type=payment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"id\": 1, \"type\": \"payment\", \"data\": {\"id\": \"123\"}}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
