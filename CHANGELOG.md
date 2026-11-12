@@ -5,6 +5,7 @@
 ### Corregido
 - Eventos perdidos: el Outbox publicaba sin `mandatory` y marcaba como publicado un evento que ninguna cola recibía (el broker "se veía vacío"). Ahora queda pendiente y se reintenta con espera creciente (`next_attempt_at`, migración V2). Un tipo de evento desconocido ya no se publica con una routing key inventada.
 - Colección Postman: los eventos simulados ahora respetan las variables de entorno (`pm.variables`); la petición "Sin token (401)" ya no envía el token.
+- Colección Postman: "Pagar tarifa" usaba una clave de idempotencia fija y, desde la segunda corrida, Pagos respondía 409 "La clave de pago ya fue utilizada". Ahora la clave depende del préstamo (`pago-tarifa-{{prestamo_id}}`).
 
 ### Agregado
 - Modo `MERCADOPAGO_MODE=simulado` con simulador de Checkout Pro, para que el equipo pruebe pagos, webhook, reembolsos y eventos sin credenciales de Mercado Pago.
