@@ -75,6 +75,9 @@ lendup:
       connect-timeout-ms: ${IDENTITY_CONNECT_TIMEOUT_MS:2000}
       read-timeout-ms: ${IDENTITY_READ_TIMEOUT_MS:3000}
     mercado-pago:
+      # real = API de Mercado Pago; simulado = checkout local sin credenciales (solo desarrollo y pruebas del equipo)
+      mode: ${MERCADOPAGO_MODE:real}
+      simulator-base-url: ${MERCADOPAGO_SIMULATOR_BASE_URL:http://localhost:8082}
       api-base-url: ${MERCADOPAGO_API_BASE_URL:https://api.mercadopago.com}
       access-token: ${MERCADOPAGO_ACCESS_TOKEN:}
       webhook-secret: ${MERCADOPAGO_WEBHOOK_SECRET:}

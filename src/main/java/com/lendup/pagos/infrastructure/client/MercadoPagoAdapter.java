@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.*;
 import java.util.function.Supplier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Component;
  * circuito abierto se lanza DependencyUnavailableException y no se asume éxito ni rechazo (RNF14).
  */
 @Component
+@ConditionalOnProperty(name = "lendup.integrations.mercado-pago.mode", havingValue = "real", matchIfMissing = true)
 public class MercadoPagoAdapter implements PaymentGatewayPort {
   private final IntegrationProperties.MercadoPago config;
   private final PreferenceClient preferences;

@@ -40,6 +40,19 @@ public class WebhookIdempotencyHandler {
     String dataId = blank(queryDataId) ? dataId(payload) : queryDataId;
     String type = Objects.toString(payload.getOrDefault("type", payload.getOrDefault("topic", queryType == null ? "" : queryType)), "");
     signature.validate(signatureHeader, requestId, dataId);
+    return process(dataId, type, requestId, payload, correlationId);
+  }
+
+  /**
+   * Notificación generada por el simulador de Mercado Pago (solo con MERCADOPAGO_MODE=simulado). No lleva firma
+   * porque no viene de Internet; el resto del flujo (registro, deduplicación y consulta del pago) es el mismo.
+   */
+  public WebhookResult handleSimulated(String paymentId, String correlationId) {
+    String requestId = "sim-" + UUID.randomUUID();
+    return process(paymentId, "payment", requestId, Map.of("type", "payment", "action", "payment.created", "data", Map.of("id", paymentId)), correlationId);
+  }
+
+  private WebhookResult process(String dataId, String type, String requestId, Map<String, Object> payload, String correlationId) {
     String eventoId = payload.get("id") != null ? "mp:" + payload.get("id") : "mp:" + type + ":" + dataId + ":" + Objects.toString(requestId, "");
     NotificacionProveedorEntity notification = registrar(eventoId, type, payload);
     if ("PROCESADA".equals(notification.getEstado()) || "IGNORADA".equals(notification.getEstado())) return new WebhookResult(eventoId, "DUPLICADA");
