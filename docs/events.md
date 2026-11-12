@@ -14,6 +14,12 @@ Exchange durable: `lendup.domain.events` (topic). DLX: `lendup.domain.events.dlx
 | `GarantiaRetenida` | `pagos.garantia-retenida.v1` | Incidencia resuelta con afectación | garantía |
 | `ReembolsoProcesado` | `pagos.reembolso-procesado.v1` | Mercado Pago confirma un reembolso de tarifa | transacción |
 
+### Entrega garantizada (Outbox + mandatory)
+
+El relay publica con *publisher confirms* y `mandatory=true` (igual que Reservas). Un evento solo se marca publicado si RabbitMQ lo confirma **y** lo entregó al menos a una cola. Si ningún servicio tiene una cola suscrita a esa routing key, el broker devuelve el mensaje. En ese caso el evento sigue pendiente en `outbox_events`, con `last_error = "Ninguna cola suscrita a ..."`, y se reintenta con espera creciente (`next_attempt_at`, hasta `OUTBOX_MAX_ATTEMPTS`).
+
+Antes, en ese caso el evento se marcaba publicado y se perdía. Por eso el broker "se veía vacío": un exchange topic **no guarda mensajes**, solo los reparte a las colas que existan en ese momento. Para ver los eventos sin levantar otros servicios, la colección Postman crea una cola espía (`debug.lendup.eventos`, enlazada con `#`).
+
 Los payloads incluyen `prestamo_id`, `reserva_id`, `prestatario_usuario_id` y `prestamista_usuario_id` para que Notificaciones y Préstamos no tengan que consultar a Pagos.
 
 ## Consumidos
