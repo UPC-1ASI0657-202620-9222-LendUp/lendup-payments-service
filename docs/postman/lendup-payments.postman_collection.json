@@ -815,7 +815,7 @@
             "url": "{{base_url}}/pagos",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-postman-1\"\n}",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-{{prestamo_id}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -856,7 +856,7 @@
             "url": "{{base_url}}/pagos",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-postman-1\"\n}",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-{{prestamo_id}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
