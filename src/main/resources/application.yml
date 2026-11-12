@@ -5,7 +5,7 @@ spring:
   application:
     name: lendup-payments-service
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3308/lendup_pagos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    url: ${DB_URL:jdbc:mysql://localhost:3311/lendup_pagos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:lendup_pagos}
     password: ${DB_PASSWORD:}
     hikari:
@@ -27,6 +27,8 @@ spring:
     password: ${RABBITMQ_PASSWORD:}
     publisher-confirm-type: correlated
     publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         acknowledge-mode: auto
@@ -55,6 +57,7 @@ lendup:
     swagger-public: ${SWAGGER_PUBLIC:false}
   outbox:
     relay-delay-ms: ${OUTBOX_RELAY_DELAY_MS:1000}
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
   reconciliation:
     delay-ms: ${PENDING_RECONCILIATION_DELAY_MS:300000}
     min-age-ms: ${PENDING_RECONCILIATION_MIN_AGE_MS:600000}
@@ -72,6 +75,9 @@ lendup:
       connect-timeout-ms: ${IDENTITY_CONNECT_TIMEOUT_MS:2000}
       read-timeout-ms: ${IDENTITY_READ_TIMEOUT_MS:3000}
     mercado-pago:
+      # real = API de Mercado Pago; simulado = checkout local sin credenciales (solo desarrollo y pruebas del equipo)
+      mode: ${MERCADOPAGO_MODE:real}
+      simulator-base-url: ${MERCADOPAGO_SIMULATOR_BASE_URL:http://localhost:8082}
       api-base-url: ${MERCADOPAGO_API_BASE_URL:https://api.mercadopago.com}
       access-token: ${MERCADOPAGO_ACCESS_TOKEN:}
       webhook-secret: ${MERCADOPAGO_WEBHOOK_SECRET:}

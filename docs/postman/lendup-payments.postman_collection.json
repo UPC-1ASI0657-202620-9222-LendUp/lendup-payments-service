@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "LendUp Payments Service",
-    "description": "Evidencias del Sprint 2 para lendup-payments-service. Orden sugerido: 1) Eventos simulados (ReservaConfirmada y PrestamoCreado) para crear la proyección; 2) Pagos y garantías; 3) Pagar en el checkout_url con un usuario de prueba de Mercado Pago, copiar el id del pago a mp_payment_id y enviar el webhook firmado; 4) Eventos de ciclo de vida para liberación, devolución, retención y reembolso. prestatario_usuario_id debe ser el usuario_id interno que Identidad devuelve para firebase_token.",
+    "description": "Orden sugerido para probar sin llaves de Mercado Pago: 0b (token, usuario, cola espía) → 1 (ReservaConfirmada y PrestamoCreado) → 2 (garantía o tarifa) → 3 (aprobar en el simulador) → 0b 'Ver eventos en la cola espía'. Si un evento simulado responde routed=false, ningún servicio está escuchando en ese broker.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -55,7 +55,7 @@
     },
     {
       "key": "rabbit_url",
-      "value": "http://localhost:15673"
+      "value": "http://localhost:15675"
     },
     {
       "key": "rabbit_user",
@@ -64,6 +64,22 @@
     {
       "key": "rabbit_pass",
       "value": "change-me"
+    },
+    {
+      "key": "identity_url",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "firebase_api_key",
+      "value": "PEGAR_API_KEY_WEB_DE_FIREBASE"
+    },
+    {
+      "key": "test_email",
+      "value": "PEGAR_CORREO_DE_PRUEBA"
+    },
+    {
+      "key": "test_password",
+      "value": "PEGAR_CONTRASENA_DE_PRUEBA"
     }
   ],
   "item": [
@@ -92,6 +108,181 @@
       ]
     },
     {
+      "name": "0b. Preparación (token, usuario y cola espía)",
+      "item": [
+        {
+          "name": "Iniciar sesión en Firebase (obtiene firebase_token)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Si ya pegaste firebase_token a mano (o no llenaste correo/contraseña), se salta este paso.",
+                  "const pass = pm.variables.get('test_password') || '';",
+                  "if (!pass || pass.startsWith('PEGAR')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 con idToken', () => { pm.response.to.have.status(200); pm.collectionVariables.set('firebase_token', pm.response.json().idToken); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={{firebase_api_key}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\",\n  \"returnSecureToken\": true\n}"
+            },
+            "description": "Usa el proyecto Firebase del equipo (lendup-desarrollo) con un usuario de prueba con correo verificado. firebase_api_key es la apiKey web pública (la misma de VITE_FIREBASE_API_KEY del frontend)."
+          }
+        },
+        {
+          "name": "Mi usuario en Identidad (obtiene prestatario_usuario_id)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 con usuario.id', () => { pm.response.to.have.status(200); pm.collectionVariables.set('prestatario_usuario_id', pm.response.json().usuario.id); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              }
+            ],
+            "url": "{{identity_url}}/api/v1/estudiantes/me",
+            "description": "Pagos resuelve tu UID de Firebase a este usuario_id. Los eventos simulados usan este id como prestatario para que tú puedas pagar."
+          }
+        },
+        {
+          "name": "Crear cola espía (ver todos los eventos en el broker)",
+          "request": {
+            "method": "PUT",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/queues/%2F/debug.lendup.eventos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"durable\": false, \"auto_delete\": false, \"arguments\": {\"x-max-length\": 1000}}"
+            },
+            "description": "Solo para pruebas: cola que copia todos los eventos del exchange lendup.domain.events. Sin ninguna cola suscrita, RabbitMQ no guarda los mensajes y el broker se ve vacío."
+          }
+        },
+        {
+          "name": "Enlazar cola espía a todos los eventos (#)",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/bindings/%2F/e/lendup.domain.events/q/debug.lendup.eventos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"routing_key\": \"#\"}"
+            }
+          }
+        },
+        {
+          "name": "Ver eventos en la cola espía",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const msgs = pm.response.json(); console.log(msgs.map(m => m.routing_key));",
+                  "pm.test('Hay eventos en el broker', () => pm.expect(msgs.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/queues/%2F/debug.lendup.eventos/get",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"count\": 50, \"ackmode\": \"ack_requeue_true\", \"encoding\": \"auto\"}"
+            },
+            "description": "Lista los últimos eventos (routing key y cuerpo) sin borrarlos. Tras pagar en el simulador debe aparecer pagos.garantia-constituida.v1 o pagos.pago-confirmado.v1."
+          }
+        }
+      ]
+    },
+    {
       "name": "1. Eventos simulados (RabbitMQ)",
       "item": [
         {
@@ -102,9 +293,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { reserva_id: pm.collectionVariables.get('reserva_id'), solicitud_id: pm.variables.replaceIn('{{$guid}}'), publicacion_id: pm.variables.replaceIn('{{$guid}}'), prestamista_usuario_id: pm.collectionVariables.get('prestamista_usuario_id'), prestatario_usuario_id: pm.collectionVariables.get('prestatario_usuario_id'), desde: '2026-11-10T09:00:00', hasta: '2026-11-12T09:00:01', tarifa_diaria_acordada: 20.00, garantia_monetaria_acordada: 50.00, moneda_acordada: 'PEN', lugar_intercambio_acordado: 'Campus' };",
+                  "const payload = { reserva_id: pm.variables.get('reserva_id'), solicitud_id: pm.variables.replaceIn('{{$guid}}'), publicacion_id: pm.variables.replaceIn('{{$guid}}'), prestamista_usuario_id: pm.variables.get('prestamista_usuario_id'), prestatario_usuario_id: pm.variables.get('prestatario_usuario_id'), desde: '2026-11-10T09:00:00', hasta: '2026-11-12T09:00:01', tarifa_diaria_acordada: 20.00, garantia_monetaria_acordada: 50.00, moneda_acordada: 'PEN', lugar_intercambio_acordado: 'Campus' };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'ReservaConfirmada', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('reserva_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('reserva_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'reservas.confirmada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -156,9 +347,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id'), reserva_id: pm.collectionVariables.get('reserva_id') };",
+                  "const payload = { prestamo_id: pm.variables.get('prestamo_id'), reserva_id: pm.variables.get('reserva_id') };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'PrestamoCreado', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.creado.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -210,9 +401,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id') };",
+                  "const payload = { prestamo_id: pm.variables.get('prestamo_id') };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'PrestamoActivado', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.activado.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -264,9 +455,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id'), cambio_fecha_prestamo_id: pm.collectionVariables.get('cambio_fecha_prestamo_id'), costo_adicional: 20.00, moneda: 'PEN' };",
+                  "const payload = { prestamo_id: pm.variables.get('prestamo_id'), cambio_fecha_prestamo_id: pm.variables.get('cambio_fecha_prestamo_id'), costo_adicional: 20.00, moneda: 'PEN' };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'ExtensionAceptada', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.extension-aceptada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -318,9 +509,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { incidencia_id: pm.collectionVariables.get('incidencia_id'), prestamo_id: pm.collectionVariables.get('prestamo_id'), decision_garantia: 'AFECTACION_PARCIAL', monto_garantia_afectado: 20.00, moneda: 'PEN' };",
+                  "const payload = { incidencia_id: pm.variables.get('incidencia_id'), prestamo_id: pm.variables.get('prestamo_id'), decision_garantia: 'AFECTACION_PARCIAL', monto_garantia_afectado: 20.00, moneda: 'PEN' };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'IncidenciaResuelta', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('incidencia_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('incidencia_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'evidencias.incidencia-resuelta.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -372,9 +563,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { prestamo_id: pm.collectionVariables.get('prestamo_id') };",
+                  "const payload = { prestamo_id: pm.variables.get('prestamo_id') };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'PrestamoFinalizado', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.finalizado.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -426,9 +617,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const payload = { reserva_id: pm.collectionVariables.get('reserva_id'), solicitud_id: pm.variables.replaceIn('{{$guid}}') };",
+                  "const payload = { reserva_id: pm.variables.get('reserva_id'), solicitud_id: pm.variables.replaceIn('{{$guid}}') };",
                   "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'ReservaCancelada', event_version: 1,",
-                  "  aggregate_version: Date.now(), aggregate_id: pm.collectionVariables.get('reserva_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "  aggregate_version: Date.now(), aggregate_id: pm.variables.get('reserva_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
                   "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'reservas.cancelada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
                 ]
               }
@@ -517,7 +708,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('201 PENDIENTE con checkout_url', () => { pm.response.to.have.status(201); const b = pm.response.json(); pm.expect(b.garantia.estado).to.eql('PENDIENTE'); pm.expect(b.checkout_url).to.match(/^https:/); pm.collectionVariables.set('transaccion_id', b.id); pm.collectionVariables.set('checkout_url', b.checkout_url); });"
+                  "pm.test('201 PENDIENTE con checkout_url', () => { pm.response.to.have.status(201); const b = pm.response.json(); pm.expect(b.garantia.estado).to.eql('PENDIENTE'); pm.expect(b.checkout_url).to.match(/^https?:/); pm.collectionVariables.set('transaccion_id', b.id); pm.collectionVariables.set('checkout_url', b.checkout_url); });"
                 ]
               }
             }
@@ -624,7 +815,7 @@
             "url": "{{base_url}}/pagos",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-postman-1\"\n}",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-{{prestamo_id}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -641,7 +832,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Devuelve la misma transacción', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('transaccion_id')));"
+                  "pm.test('Devuelve la misma transacción', () => pm.expect(pm.response.json().id).to.eql(pm.variables.get('transaccion_id')));"
                 ]
               }
             }
@@ -665,7 +856,7 @@
             "url": "{{base_url}}/pagos",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-postman-1\"\n}",
+              "raw": "{\n  \"prestamo_id\": \"{{prestamo_id}}\",\n  \"tipo\": \"PAGO_TARIFA\",\n  \"monto\": 60,\n  \"medio_pago_seleccionado\": \"MERCADO_PAGO\",\n  \"clave_idempotencia\": \"pago-tarifa-{{prestamo_id}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -805,10 +996,6 @@
             "method": "GET",
             "header": [
               {
-                "key": "Authorization",
-                "value": "Bearer {{firebase_token}}"
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json"
               },
@@ -823,7 +1010,93 @@
       ]
     },
     {
-      "name": "3. Webhook de Mercado Pago",
+      "name": "3. Mercado Pago simulado (MERCADOPAGO_MODE=simulado)",
+      "item": [
+        {
+          "name": "Abrir checkout simulado (página HTML)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{checkout_url}}",
+            "description": "Es la checkout_url que devolvió la última garantía o pago. En el navegador muestra botones Aprobar/Rechazar y luego redirige al frontend."
+          }
+        },
+        {
+          "name": "Aprobar pago (procesa como el webhook)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pago aprobado y transacción CONFIRMADA', () => { pm.response.to.have.status(200); const b = pm.response.json(); pm.collectionVariables.set('mp_payment_id', b.payment_id); pm.expect(b.estado_webhook).to.eql('PROCESADA'); pm.expect(b.estado_transaccion).to.eql('CONFIRMADA'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{checkout_url}}?resultado=aprobado"
+          }
+        },
+        {
+          "name": "Rechazar pago",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pago rechazado (con una transacción nueva queda FALLIDA)', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().resultado).to.eql('RECHAZADO'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{checkout_url}}?resultado=rechazado"
+          }
+        },
+        {
+          "name": "Registrar pago sin notificar (luego usar 'Webhook firmado')",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pago registrado', () => { pm.response.to.have.status(200); pm.collectionVariables.set('mp_payment_id', pm.response.json().payment_id); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{checkout_url}}?resultado=aprobado&notificar=false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Webhook de Mercado Pago",
       "item": [
         {
           "name": "Webhook firmado",
@@ -834,11 +1107,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "// Calcula x-signature igual que Mercado Pago: HMAC-SHA256 de 'id:{data.id};request-id:{x-request-id};ts:{ts};'",
-                  "const dataId = pm.collectionVariables.get('mp_payment_id');",
+                  "const dataId = pm.variables.get('mp_payment_id');",
                   "const requestId = pm.variables.replaceIn('{{$guid}}');",
                   "const ts = Date.now().toString();",
                   "const manifest = 'id:' + dataId.toLowerCase() + ';request-id:' + requestId + ';ts:' + ts + ';';",
-                  "const v1 = CryptoJS.HmacSHA256(manifest, pm.collectionVariables.get('webhook_secret')).toString(CryptoJS.enc.Hex);",
+                  "const v1 = CryptoJS.HmacSHA256(manifest, pm.variables.get('webhook_secret')).toString(CryptoJS.enc.Hex);",
                   "pm.variables.set('mp_request_id', requestId);",
                   "pm.variables.set('mp_signature', 'ts=' + ts + ',v1=' + v1);",
                   "pm.variables.set('mp_notification_id', Date.now().toString());"

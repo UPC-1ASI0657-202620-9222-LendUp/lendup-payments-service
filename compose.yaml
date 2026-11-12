@@ -7,7 +7,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD required}
       TZ: UTC
-    ports: ["127.0.0.1:3308:3306"]
+    ports: ["127.0.0.1:${MYSQL_HOST_PORT:-3311}:3306"]
     volumes: ["mysql-data:/var/lib/mysql"]
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
@@ -19,7 +19,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-lendup_pagos}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD required}
-    ports: ["127.0.0.1:5673:5672", "127.0.0.1:15673:15672"]
+    ports: ["127.0.0.1:${RABBITMQ_HOST_PORT:-5675}:5672", "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT:-15675}:15672"]
     volumes: ["rabbitmq-data:/var/lib/rabbitmq"]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -35,7 +35,9 @@ services:
     environment:
       SERVER_PORT: 8082
       DB_URL: jdbc:mysql://mysql:3306/lendup_pagos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      RABBITMQ_HOST: rabbitmq
+      # Broker propio por defecto; para integrar con el equipo usar el broker compartido (README, "Broker compartido").
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
     ports: ["${SERVER_PORT:-8082}:8082"]
     volumes:
