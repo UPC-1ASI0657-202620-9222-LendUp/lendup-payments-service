@@ -27,6 +27,8 @@ spring:
     password: ${RABBITMQ_PASSWORD:}
     publisher-confirm-type: correlated
     publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         acknowledge-mode: auto
@@ -55,6 +57,7 @@ lendup:
     swagger-public: ${SWAGGER_PUBLIC:false}
   outbox:
     relay-delay-ms: ${OUTBOX_RELAY_DELAY_MS:1000}
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
   reconciliation:
     delay-ms: ${PENDING_RECONCILIATION_DELAY_MS:300000}
     min-age-ms: ${PENDING_RECONCILIATION_MIN_AGE_MS:600000}
