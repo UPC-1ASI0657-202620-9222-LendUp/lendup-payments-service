@@ -135,6 +135,130 @@ class PaymentApplicationServiceTest {
     assertTrue(f.eventTypes().containsAll(java.util.List.of("PagoConfirmado", "TarifaLiberada")));
   }
 
+  // ---- Comisión de LendUp y desglose (RF37, US32, US35) ----
+
+  private void pagarTarifa(PaymentsTestFixture fx, UUID prestamo) {
+    var view = fx.payments.crearPago(fx.prestatario, pago(prestamo, total, "k-" + prestamo), "corr");
+    fx.payments.aplicarResultadoCobro(fx.gateway.registrarPago(view.id(), ResultadoProveedor.APROBADO, total), "corr");
+  }
+
+  @Test void laLiberacionRegistraLaComisionDeLendUpYElNetoDelPrestamista() {
+    PaymentsTestFixture fx = new PaymentsTestFixture(new BigDecimal("10"));
+    UUID prestamo = fx.prestamoReservado(tarifa, null);
+    pagarTarifa(fx, prestamo);
+    fx.payments.registrarPrestamoActivado(prestamo, "corr");
+    var liberacion = fx.repository.ofType(TipoTransaccion.LIBERACION_TARIFA).getFirst();
+    assertEquals(total, liberacion.monto());
+    assertEquals(new BigDecimal("6.00"), liberacion.comisionLendup());
+    var evento = fx.ultimo("TarifaLiberada");
+    assertEquals(new BigDecimal("6.00"), evento.get("comision_lendup"));
+    assertEquals(new BigDecimal("52.80"), evento.get("monto_neto_prestamista"), "60.00 - 6.00 de LendUp - 1.20 de Mercado Pago");
+  }
+
+  @Test void sinComisionConfiguradaElPrestamistaRecibeLoMismoQueAntes() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    pagarTarifa(f, prestamo);
+    f.payments.registrarPrestamoActivado(prestamo, "corr");
+    assertEquals(new BigDecimal("58.80"), f.ultimo("TarifaLiberada").get("monto_neto_prestamista"));
+  }
+
+  @Test void elDesgloseMuestraCadaConceptoAntesDePagar() {
+    PaymentsTestFixture fx = new PaymentsTestFixture(new BigDecimal("10"));
+    UUID prestamo = fx.prestamoReservado(tarifa, new BigDecimal("50.00"));
+    var d = fx.payments.desglosarPago(fx.prestatario, prestamo);
+    assertEquals(total, d.tarifa());
+    assertEquals(new BigDecimal("6.00"), d.comisionLendup());
+    assertNull(d.comisionProveedor(), "Mercado Pago la informa recién al confirmar el pago");
+    assertEquals(new BigDecimal("50.00"), d.garantia());
+    assertEquals(new BigDecimal("110.00"), d.totalPrestatario());
+    assertEquals(new BigDecimal("54.00"), d.netoPrestamista());
+    assertEquals("PEN", d.moneda());
+    assertTrue(fx.repository.transacciones.isEmpty(), "consultar el costo no genera transacciones (US32)");
+  }
+
+  @Test void elDesgloseIncluyeLaComisionDelProveedorCuandoYaSeConoce() {
+    PaymentsTestFixture fx = new PaymentsTestFixture(new BigDecimal("10"));
+    UUID prestamo = fx.prestamoReservado(tarifa, null);
+    pagarTarifa(fx, prestamo);
+    var d = fx.payments.desglosarPago(fx.prestamista, prestamo);
+    assertEquals(new BigDecimal("1.20"), d.comisionProveedor());
+    assertEquals(new BigDecimal("0.00"), d.garantia());
+    assertEquals(new BigDecimal("52.80"), d.netoPrestamista());
+  }
+
+  @Test void elDesgloseEsSoloParaParticipantes() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    assertThrows(ForbiddenException.class, () -> f.payments.desglosarPago(UUID.randomUUID(), prestamo));
+    assertThrows(NotFoundException.class, () -> f.payments.desglosarPago(f.prestatario, UUID.randomUUID()));
+  }
+
+  // ---- Extensión que ya no corresponde ----
+
+  private UUID extensionPendiente(UUID prestamo) {
+    f.payments.registrarPrestamoActivado(prestamo, "corr");
+    UUID cambio = UUID.randomUUID();
+    f.payments.registrarExtensionAceptada(prestamo, cambio, new BigDecimal("20"), "corr");
+    return f.payments.crearPago(f.prestatario, new CrearPagoCommand(prestamo, cambio, "PAGO_EXTENSION", new BigDecimal("20.00"), "MERCADO_PAGO", "e1"), "corr").id();
+  }
+
+  @Test void alDevolverElObjetoSeCancelaElCobroDeLaExtensionPendiente() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    UUID cobro = extensionPendiente(prestamo);
+    f.payments.registrarDevolucion(prestamo, "corr");
+    assertEquals(EstadoTransaccion.CANCELADA, f.repository.transacciones.get(cobro).estado());
+    assertNull(f.repository.findProyeccionByPrestamo(prestamo).orElseThrow().cambioFechaPendienteId());
+    assertThrows(BusinessConflictException.class, () -> f.payments.crearPago(f.prestatario,
+        new CrearPagoCommand(prestamo, UUID.randomUUID(), "PAGO_EXTENSION", new BigDecimal("20.00"), "MERCADO_PAGO", "e2"), "corr"));
+    assertTrue(f.eventTypes().stream().noneMatch("PagoConfirmado"::equals));
+  }
+
+  @Test void elPagoDeUnaExtensionQueYaNoCorrespondeSeReembolsa() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    UUID cobro = extensionPendiente(prestamo);
+    f.payments.registrarDevolucion(prestamo, "corr");
+    var reembolsos = f.payments.aplicarResultadoCobro(f.gateway.registrarPago(cobro, ResultadoProveedor.APROBADO, new BigDecimal("20.00")), "corr");
+    assertEquals(1, reembolsos.size());
+    assertFalse(f.eventTypes().contains("PagoConfirmado"));
+    assertTrue(f.repository.ofType(TipoTransaccion.LIBERACION_TARIFA).isEmpty(), "no se libera al prestamista");
+    f.payments.ejecutarReembolso(reembolsos.getFirst(), "corr");
+    assertNotNull(f.ultimo("ReembolsoProcesado").get("cambio_fecha_prestamo_id"));
+  }
+
+  @Test void elPagoDeUnaExtensionDespuesDeFinalizarSeReembolsaAunqueNoHayaLlegadoLaDevolucion() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    UUID cobro = extensionPendiente(prestamo);
+    f.guarantees.registrarPrestamoFinalizado(prestamo, "corr");
+    assertEquals(1, f.payments.aplicarResultadoCobro(f.gateway.registrarPago(cobro, ResultadoProveedor.APROBADO, new BigDecimal("20.00")), "corr").size());
+    assertFalse(f.eventTypes().contains("PagoConfirmado"));
+  }
+
+  @Test void unSegundoPagoDeLaMismaExtensionSeReembolsa() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    UUID cobro = extensionPendiente(prestamo);
+    f.payments.aplicarResultadoCobro(f.gateway.registrarPago(cobro, ResultadoProveedor.RECHAZADO, new BigDecimal("20.00")), "corr");
+    UUID cambio = f.repository.findProyeccionByPrestamo(prestamo).orElseThrow().cambioFechaPendienteId();
+    UUID otro = f.payments.crearPago(f.prestatario, new CrearPagoCommand(prestamo, cambio, "PAGO_EXTENSION", new BigDecimal("20.00"), "MERCADO_PAGO", "e2"), "corr").id();
+    assertTrue(f.payments.aplicarResultadoCobro(f.gateway.registrarPago(otro, ResultadoProveedor.APROBADO, new BigDecimal("20.00")), "corr").isEmpty());
+    assertEquals(1, f.payments.aplicarResultadoCobro(f.gateway.registrarPago(cobro, ResultadoProveedor.APROBADO, new BigDecimal("20.00")), "corr").size());
+    assertEquals(1, f.eventTypes().stream().filter("PagoConfirmado"::equals).count());
+  }
+
+  // ---- Reembolso no completado (US41, criterio 5) ----
+
+  @Test void reembolsoRechazadoPorElProveedorSeInforma() {
+    UUID prestamo = f.prestamoReservado(tarifa, null);
+    pagarTarifa(f, prestamo);
+    UUID reembolso = f.payments.registrarReservaCancelada(f.reservaDe(prestamo), "corr").getFirst();
+    f.gateway.refundResult = ResultadoProveedor.RECHAZADO;
+    f.payments.ejecutarReembolso(reembolso, "corr");
+    var evento = f.ultimo("ReembolsoRechazado");
+    assertEquals(reembolso, evento.get("transaccion_id"));
+    assertEquals("REEMBOLSO_TARIFA", evento.get("tipo"));
+    assertEquals(total, evento.get("monto"));
+    assertEquals(f.prestatario, evento.get("prestatario_usuario_id"));
+    assertFalse(f.eventTypes().contains("ReembolsoProcesado"));
+  }
+
   @Test void reservaCanceladaReembolsaLaTarifaConClaveIdempotente() {
     UUID prestamo = f.prestamoReservado(tarifa, null);
     var view = f.payments.crearPago(f.prestatario, pago(prestamo, total, "k1"), "corr");

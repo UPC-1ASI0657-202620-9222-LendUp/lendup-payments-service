@@ -20,25 +20,26 @@ public final class PrestamoPagable {
   private EstadoPrestamoPagable estado;
   private BigDecimal costoExtensionPendiente;
   private UUID cambioFechaPendienteId;
+  private int incidenciasPendientes;
   private final Instant creadoEn;
   private Instant actualizadoEn;
 
   public PrestamoPagable(UUID reservaId, UUID prestamoId, UUID prestamistaUsuarioId, UUID prestatarioUsuarioId, PeriodoPrestamo periodo,
                          BigDecimal tarifaDiariaAcordada, BigDecimal garantiaMonetariaAcordada, String moneda, EstadoPrestamoPagable estado,
-                         BigDecimal costoExtensionPendiente, UUID cambioFechaPendienteId, Instant creadoEn, Instant actualizadoEn) {
+                         BigDecimal costoExtensionPendiente, UUID cambioFechaPendienteId, int incidenciasPendientes, Instant creadoEn, Instant actualizadoEn) {
     if (reservaId == null || prestamistaUsuarioId == null || prestatarioUsuarioId == null || periodo == null) throw new IllegalArgumentException("Proyección incompleta");
     if (tarifaDiariaAcordada == null || tarifaDiariaAcordada.signum() <= 0) throw new IllegalArgumentException("Tarifa diaria inválida");
     if (moneda == null || !moneda.matches("[A-Z]{3}")) throw new IllegalArgumentException("Moneda inválida");
     this.reservaId = reservaId; this.prestamoId = prestamoId; this.prestamistaUsuarioId = prestamistaUsuarioId; this.prestatarioUsuarioId = prestatarioUsuarioId;
     this.periodo = periodo; this.tarifaDiariaAcordada = tarifaDiariaAcordada; this.garantiaMonetariaAcordada = garantiaMonetariaAcordada; this.moneda = moneda;
     this.estado = estado; this.costoExtensionPendiente = costoExtensionPendiente; this.cambioFechaPendienteId = cambioFechaPendienteId;
-    this.creadoEn = creadoEn; this.actualizadoEn = actualizadoEn;
+    this.incidenciasPendientes = incidenciasPendientes; this.creadoEn = creadoEn; this.actualizadoEn = actualizadoEn;
   }
 
   public static PrestamoPagable desdeReservaConfirmada(UUID reservaId, UUID prestamistaId, UUID prestatarioId, PeriodoPrestamo periodo,
                                                        BigDecimal tarifaDiaria, BigDecimal garantia, String moneda, Instant now) {
     return new PrestamoPagable(reservaId, null, prestamistaId, prestatarioId, periodo, tarifaDiaria, garantia, moneda,
-        EstadoPrestamoPagable.RESERVADO, null, null, now, now);
+        EstadoPrestamoPagable.RESERVADO, null, null, 0, now, now);
   }
 
   public void vincularPrestamo(UUID id, Instant now) {
@@ -55,6 +56,10 @@ public final class PrestamoPagable {
     cambioFechaPendienteId = cambioFechaId; costoExtensionPendiente = costo; actualizadoEn = now;
   }
 
+  public void registrarIncidencia(Instant now) { incidenciasPendientes++; actualizadoEn = now; }
+  public void resolverIncidencia(Instant now) { if (incidenciasPendientes > 0) { incidenciasPendientes--; actualizadoEn = now; } }
+  public boolean tieneIncidenciasPendientes() { return incidenciasPendientes > 0; }
+
   public void liquidarExtension(Instant now) { cambioFechaPendienteId = null; costoExtensionPendiente = null; actualizadoEn = now; }
 
   public BigDecimal tarifaTotal(PoliticaDeCosto politica) { return politica.importe(periodo, tarifaDiariaAcordada); }
@@ -67,5 +72,6 @@ public final class PrestamoPagable {
   public PeriodoPrestamo periodo() { return periodo; } public BigDecimal tarifaDiariaAcordada() { return tarifaDiariaAcordada; }
   public BigDecimal garantiaMonetariaAcordada() { return garantiaMonetariaAcordada; } public String moneda() { return moneda; }
   public EstadoPrestamoPagable estado() { return estado; } public BigDecimal costoExtensionPendiente() { return costoExtensionPendiente; }
-  public UUID cambioFechaPendienteId() { return cambioFechaPendienteId; } public Instant creadoEn() { return creadoEn; } public Instant actualizadoEn() { return actualizadoEn; }
+  public UUID cambioFechaPendienteId() { return cambioFechaPendienteId; }
+  public int incidenciasPendientes() { return incidenciasPendientes; } public Instant creadoEn() { return creadoEn; } public Instant actualizadoEn() { return actualizadoEn; }
 }

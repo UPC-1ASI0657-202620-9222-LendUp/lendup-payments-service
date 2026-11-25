@@ -1,5 +1,5 @@
 package com.lendup.pagos.interfaces.rest;
-import com.lendup.pagos.application.port.in.PaymentUseCases; import com.lendup.pagos.config.security.ActorContext; import com.lendup.pagos.interfaces.rest.dto.ResponseDtos.TransaccionResponse; import io.swagger.v3.oas.annotations.Operation; import io.swagger.v3.oas.annotations.tags.Tag; import java.util.List; import java.util.UUID; import org.springframework.web.bind.annotation.*;
+import com.lendup.pagos.application.port.in.PaymentUseCases; import com.lendup.pagos.config.security.ActorContext; import com.lendup.pagos.interfaces.rest.dto.ResponseDtos.*; import io.swagger.v3.oas.annotations.Operation; import io.swagger.v3.oas.annotations.tags.Tag; import java.util.List; import java.util.UUID; import org.springframework.web.bind.annotation.*;
 /** Transaction Query Controller (Fig. 18): estado e historial de transacciones de un préstamo. */
 @RestController @RequestMapping("/api/v1") @Tag(name="Transacciones")
 public class TransactionQueryController {
@@ -7,4 +7,6 @@ public class TransactionQueryController {
   public TransactionQueryController(PaymentUseCases u,ActorContext a){useCases=u;actor=a;}
   @GetMapping("/prestamos/{id}/transacciones") @Operation(summary="Listar transacciones del préstamo",description="Solo participantes del préstamo.")
   List<TransaccionResponse> transactions(@PathVariable UUID id){return useCases.listarTransacciones(actor.userId(),id).stream().map(TransaccionResponse::from).toList();}
+  @GetMapping("/prestamos/{id}/desglose-pago") @Operation(summary="Desglosar el costo del préstamo",description="Tarifa, comisiones, garantía y total antes de pagar. Solo participantes; no genera transacciones.")
+  DesglosePagoResponse breakdown(@PathVariable UUID id){return DesglosePagoResponse.from(useCases.desglosarPago(actor.userId(),id));}
 }

@@ -20,5 +20,5 @@ La captura diferida queda como mejora futura.
 ## Consecuencias
 
 - El prestatario ve el cargo completo mientras dure el préstamo y la comisión del proveedor del cobro no se recupera con el reembolso; debe informarse en el desglose (RF37).
-- El saldo se devuelve al resolver cada incidencia (flujo indicado para el sprint). Una incidencia posterior solo puede afectar el saldo no devuelto; si el negocio requiere retener la garantía completa hasta finalizar, basta con mover la devolución del saldo al evento `PrestamoFinalizado`.
-- El estado `RETENIDA_POR_INCIDENCIA` queda en el catálogo pero no se usa, porque Pagos no consume `IncidenciaReportada`.
+- El saldo se devuelve al resolver la última incidencia pendiente (US36). Una incidencia posterior solo puede afectar el saldo no devuelto; si el negocio requiere retener la garantía completa hasta finalizar, basta con mover la devolución del saldo al evento `PrestamoFinalizado`.
+- Con `IncidenciaReportada` la garantía pasa a `RETENIDA_POR_INCIDENCIA` y se cuentan las incidencias pendientes: el saldo se devuelve al resolver la última, o al finalizar el préstamo si ya no queda ninguna (RF41).

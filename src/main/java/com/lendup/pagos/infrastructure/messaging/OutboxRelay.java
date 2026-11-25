@@ -22,7 +22,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Outbox Event Publisher (Fig. 18). Publica con publisher confirms y mandatory=true (igual que Reservas): el evento
  * solo se marca publicado si el broker lo confirma Y lo entregó al menos a una cola. Si nadie está suscrito a la
- * routing key, el broker lo devuelve y el evento sigue pendiente (no se pierde) con reintentos espaciados.
+ * routing key, el broker lo devuelve y el evento sigue pendiente (no se pierde) con reintentos espaciados que no se
+ * agotan: sale en cuanto el consumidor declara su cola.
  */
 @Component
 public class OutboxRelay {
@@ -45,14 +46,22 @@ public class OutboxRelay {
       try {
         publish(e);
         e.published(clock.instant());
+      } catch (SinSuscriptoresException ex) {
+        e.waiting(ex.getMessage(), proximoIntento(e), maxAttempts);
+        log.warn("outbox_event_waiting_for_subscriber event_id={} event_type={} attempts={} error={}", e.getId(), e.getEventType(), e.getAttempts(), e.getLastError());
       } catch (Exception ex) {
-        Instant next = clock.instant().plusSeconds(Math.min(300, 1L << Math.min(e.getAttempts() + 1, 8)));
-        e.failed(ex.getMessage(), next);
+        e.failed(ex.getMessage(), proximoIntento(e));
         if (e.getAttempts() >= maxAttempts) log.error("outbox_event_exhausted event_id={} event_type={} attempts={} error={}", e.getId(), e.getEventType(), e.getAttempts(), e.getLastError());
         else log.warn("outbox_publish_failed event_id={} event_type={} attempts={} error={}", e.getId(), e.getEventType(), e.getAttempts(), e.getLastError());
       }
       repo.save(e);
     }
+  }
+
+  private Instant proximoIntento(OutboxEventEntity e) { return clock.instant().plusSeconds(Math.min(300, 1L << Math.min(e.getAttempts() + 1, 8))); }
+
+  private static final class SinSuscriptoresException extends RuntimeException {
+    SinSuscriptoresException(String routingKey) { super("Ninguna cola suscrita a " + routingKey + " (el broker devolvió el evento)"); }
   }
 
   private void publish(OutboxEventEntity e) throws Exception {
@@ -75,7 +84,7 @@ public class OutboxRelay {
     }, cd);
     CorrelationData.Confirm confirm = cd.getFuture().get(5, TimeUnit.SECONDS);
     if (!confirm.ack()) throw new IllegalStateException("NACK del broker: " + confirm.reason());
-    if (cd.getReturned() != null) throw new IllegalStateException("Ninguna cola suscrita a " + routingKey + " (el broker devolvió el evento)");
+    if (cd.getReturned() != null) throw new SinSuscriptoresException(routingKey);
   }
 
   static String routingKey(String type) {
@@ -87,6 +96,7 @@ public class OutboxRelay {
       case "GarantiaDevuelta" -> "pagos.garantia-devuelta.v1";
       case "GarantiaRetenida" -> "pagos.garantia-retenida.v1";
       case "ReembolsoProcesado" -> "pagos.reembolso-procesado.v1";
+      case "ReembolsoRechazado" -> "pagos.reembolso-rechazado.v1";
       default -> throw new IllegalArgumentException("Tipo de evento Outbox no soportado: " + type);
     };
   }

@@ -100,6 +100,9 @@ public class PaymentsSteps {
   @Cuando("el préstamo finaliza")
   public void prestamoFinaliza() { ejecutar(f.guarantees.registrarPrestamoFinalizado(prestamo, "bdd")); }
 
+  @Dado("que se reporta una incidencia")
+  public void incidenciaReportada() { f.guarantees.registrarIncidenciaReportada(prestamo, UUID.randomUUID(), "bdd"); }
+
   @Cuando("se resuelve una incidencia con decisión {string} por {double} PEN")
   public void incidenciaResuelta(String decision, double monto) {
     ejecutar(f.guarantees.registrarIncidenciaResuelta(new IncidenciaResueltaCommand(UUID.randomUUID(), prestamo, DecisionGarantia.valueOf(decision), money(monto)), "bdd"));

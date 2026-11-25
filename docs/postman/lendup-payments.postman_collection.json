@@ -336,11 +336,11 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         },
         {
-          "name": "PrestamoCreado (pendiente en Préstamos)",
+          "name": "PrestamoCreado (Préstamos)",
           "event": [
             {
               "listen": "prerequest",
@@ -390,11 +390,11 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         },
         {
-          "name": "PrestamoActivado (pendiente)",
+          "name": "PrestamoActivado (Préstamos)",
           "event": [
             {
               "listen": "prerequest",
@@ -444,11 +444,11 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         },
         {
-          "name": "ExtensionAceptada (pendiente)",
+          "name": "ExtensionAceptada (Préstamos)",
           "event": [
             {
               "listen": "prerequest",
@@ -498,11 +498,117 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         },
         {
-          "name": "IncidenciaResuelta parcial (pendiente en Evidencias)",
+          "name": "DevolucionRegistrada (Préstamos)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { prestamo_id: pm.variables.get('prestamo_id') };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'DevolucionRegistrada', event_version: 1, aggregate_version: Date.now(), aggregate_id: pm.variables.get('prestamo_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'prestamos.devolucion-registrada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Descarta la extensión que quedó sin pagar."
+          }
+        },
+        {
+          "name": "IncidenciaReportada (Evidencias, aún sin microservicio)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = { incidencia_id: pm.variables.get('incidencia_id'), prestamo_id: pm.variables.get('prestamo_id') };",
+                  "const envelope = { event_id: pm.variables.replaceIn('{{$guid}}'), event_type: 'IncidenciaReportada', event_version: 1, aggregate_version: Date.now(), aggregate_id: pm.variables.get('incidencia_id'), occurred_at: new Date().toISOString(), correlation_id: 'postman', payload };",
+                  "pm.variables.set('rabbit_body', JSON.stringify({ properties: { content_type: 'application/json' }, routing_key: 'evidencias.incidencia-reportada.v1', payload: JSON.stringify(envelope), payload_encoding: 'string' }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Publicado y enrutado a una cola', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().routed).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{rabbit_user}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{rabbit_pass}}"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{rabbit_url}}/api/exchanges/%2F/lendup.domain.events/publish",
+            "body": {
+              "mode": "raw",
+              "raw": "{{rabbit_body}}"
+            },
+            "description": "Retiene la garantía hasta que la incidencia se resuelva (RF41)."
+          }
+        },
+        {
+          "name": "IncidenciaResuelta parcial (Evidencias, aún sin microservicio)",
           "event": [
             {
               "listen": "prerequest",
@@ -552,11 +658,11 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         },
         {
-          "name": "PrestamoFinalizado (pendiente)",
+          "name": "PrestamoFinalizado (Préstamos)",
           "event": [
             {
               "listen": "prerequest",
@@ -606,7 +712,7 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         },
         {
@@ -660,7 +766,7 @@
               "mode": "raw",
               "raw": "{{rabbit_body}}"
             },
-            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar mientras el productor real no existe."
+            "description": "Publica en RabbitMQ (API de administración) un mensaje de ejemplo de contracts/events/v1/examples.json. Sirve para probar este servicio solo, sin levantar a los productores."
           }
         }
       ]
@@ -698,6 +804,38 @@
               }
             ],
             "url": "{{base_url}}/medios-pago"
+          }
+        },
+        {
+          "name": "Desglose del costo (RF37)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 con tarifa, comisiones, garantía y total', () => { pm.response.to.have.status(200); const b = pm.response.json(); pm.expect(b.tarifa).to.eql(60); pm.expect(b).to.include.keys('comision_lendup', 'garantia', 'total_prestatario', 'neto_prestamista'); pm.expect(b.total_prestatario).to.eql(b.tarifa + b.garantia); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebase_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "postman-{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/prestamos/{{prestamo_id}}/desglose-pago"
           }
         },
         {

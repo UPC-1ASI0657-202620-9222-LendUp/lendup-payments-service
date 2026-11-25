@@ -39,12 +39,14 @@ public class PaymentApplicationService implements PaymentUseCases {
   private final AuditPort audit;
   private final TransactionOperations tx;
   private final Clock clock;
+  private final PoliticaDeComision politicaDeComision;
   private final PoliticaDeCosto politicaDeCosto = PoliticaDeCosto.POR_BLOQUES_DE_24_HORAS;
 
   public PaymentApplicationService(TransactionRepository repository, PaymentGatewayPort gateway, GuaranteeApplicationService guarantees,
-                                   CheckoutCoordinator checkout, EconomicEventRecorder events, AuditPort audit, TransactionOperations tx, Clock clock) {
+                                   CheckoutCoordinator checkout, EconomicEventRecorder events, AuditPort audit, TransactionOperations tx, Clock clock,
+                                   PoliticaDeComision politicaDeComision) {
     this.repository = repository; this.gateway = gateway; this.guarantees = guarantees; this.checkout = checkout; this.events = events;
-    this.audit = audit; this.tx = tx; this.clock = clock;
+    this.audit = audit; this.tx = tx; this.clock = clock; this.politicaDeComision = politicaDeComision;
   }
 
   @Override
@@ -102,6 +104,20 @@ public class PaymentApplicationService implements PaymentUseCases {
     return repository.findByPrestamo(prestamoId).stream().map(TransaccionView::from).toList();
   }
 
+  @Override @Transactional(readOnly = true)
+  public DesglosePagoView desglosarPago(UUID actor, UUID prestamoId) {
+    PrestamoPagable prestamo = proyeccion(prestamoId);
+    if (!prestamo.esParticipante(actor)) throw new ForbiddenException("No participas en este préstamo");
+    BigDecimal tarifa = prestamo.tarifaTotal(politicaDeCosto);
+    BigDecimal lendup = politicaDeComision.comision(tarifa);
+    BigDecimal proveedor = repository.findByPrestamo(prestamoId).stream()
+        .filter(t -> t.tipo() == TipoTransaccion.PAGO_TARIFA && t.estado() == EstadoTransaccion.CONFIRMADA)
+        .map(TransaccionEconomica::comisionProveedor).filter(Objects::nonNull).findFirst().orElse(null);
+    BigDecimal garantia = prestamo.requiereGarantia() ? prestamo.garantiaMonetariaAcordada().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
+    BigDecimal neto = tarifa.subtract(lendup).subtract(proveedor == null ? BigDecimal.ZERO : proveedor).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    return new DesglosePagoView(prestamoId, prestamo.moneda(), tarifa, lendup, proveedor, garantia, tarifa.add(garantia), neto);
+  }
+
   @Override
   public List<UUID> aplicarResultadoCobro(ProviderPayment payment, String correlationId) {
     UUID transaccionId = uuidOrNull(payment.externalReference());
@@ -135,16 +151,16 @@ public class PaymentApplicationService implements PaymentUseCases {
     if (t.tipo() == TipoTransaccion.CONSTITUCION_GARANTIA) return guarantees.confirmarConstitucion(t, prestamo, correlationId);
     boolean duplicado = t.tipo() == TipoTransaccion.PAGO_TARIFA && repository.findByPrestamo(t.prestamoId()).stream()
         .anyMatch(o -> !o.id().equals(t.id()) && o.tipo() == TipoTransaccion.PAGO_TARIFA && o.estado() == EstadoTransaccion.CONFIRMADA);
-    if (duplicado || prestamo == null || prestamo.estado() == EstadoPrestamoPagable.CANCELADO) {
-      // Pago duplicado o llegado después de cancelar la reserva: se devuelve (RNF13, US41).
+    boolean extensionSinEfecto = t.tipo() == TipoTransaccion.PAGO_EXTENSION
+        && (prestamo == null || !Objects.equals(t.cambioFechaPrestamoId(), prestamo.cambioFechaPendienteId()));
+    if (duplicado || extensionSinEfecto || prestamo == null || prestamo.estado() == EstadoPrestamoPagable.CANCELADO) {
+      // Pago duplicado, de una reserva cancelada o de una extensión que ya no corresponde: se devuelve (RNF13, US41).
       return crearReembolsoTarifa(t, correlationId).map(List::of).orElse(List.of());
     }
     events.pagoConfirmado(t, prestamo, correlationId);
     if (t.tipo() == TipoTransaccion.PAGO_EXTENSION) {
-      if (Objects.equals(t.cambioFechaPrestamoId(), prestamo.cambioFechaPendienteId())) {
-        prestamo.liquidarExtension(now);
-        repository.saveProyeccion(prestamo);
-      }
+      prestamo.liquidarExtension(now);
+      repository.saveProyeccion(prestamo);
       if (prestamo.estado() == EstadoPrestamoPagable.ACTIVO) liberarTarifa(t, prestamo, correlationId);
     }
     return List.of();
@@ -174,6 +190,7 @@ public class PaymentApplicationService implements PaymentUseCases {
       repository.saveTransaccion(t);
       audit.record("TRANSACCION", t.id(), "REEMBOLSO_RECHAZADO", EstadoTransaccion.PENDIENTE.name(), t.estado().name(), null, correlationId);
       log.error("Mercado Pago rechazó el reembolso {}: {}. Requiere revisión manual", t.id(), result.detalle());
+      events.reembolsoRechazado(t, repository.findProyeccionByPrestamo(t.prestamoId()).orElse(null), result.detalle(), correlationId);
       return;
     }
     t.confirmar(now);
@@ -246,6 +263,23 @@ public class PaymentApplicationService implements PaymentUseCases {
   }
 
   @Override @Transactional
+  public void registrarDevolucion(UUID prestamoId, String correlationId) {
+    PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(prestamoId).orElseThrow(() -> new NotFoundException("Préstamo no proyectado"));
+    UUID cambio = prestamo.cambioFechaPendienteId();
+    if (cambio == null) return;
+    Instant now = clock.instant();
+    prestamo.liquidarExtension(now);
+    repository.saveProyeccion(prestamo);
+    for (TransaccionEconomica t : repository.findByPrestamo(prestamoId)) {
+      if (t.tipo() != TipoTransaccion.PAGO_EXTENSION || t.estado() != EstadoTransaccion.PENDIENTE) continue;
+      t.cancelar(now);
+      repository.saveTransaccion(t);
+      audit.record("TRANSACCION", t.id(), "CANCELAR", EstadoTransaccion.PENDIENTE.name(), t.estado().name(), null, correlationId);
+    }
+    audit.record("PRESTAMO_PAGABLE", prestamo.reservaId(), "DESCARTAR_EXTENSION", prestamo.estado().name(), prestamo.estado().name(), null, correlationId);
+  }
+
+  @Override @Transactional
   public List<UUID> registrarReservaCancelada(UUID reservaId, String correlationId) {
     PrestamoPagable prestamo = repository.lockProyeccionByReserva(reservaId).orElse(null);
     if (prestamo == null) return List.of();
@@ -275,6 +309,7 @@ public class PaymentApplicationService implements PaymentUseCases {
     Instant now = clock.instant();
     TransaccionEconomica liberacion = TransaccionEconomica.nueva(pago.prestamoId(), null, pago.cambioFechaPrestamoId(), null,
         TipoTransaccion.LIBERACION_TARIFA, pago.monto(), pago.moneda(), null, pago.referenciaProveedor(), clave, now);
+    liberacion.registrarComisiones(politicaDeComision.comision(pago.monto()), pago.comisionProveedor() == null ? BigDecimal.ZERO.setScale(2) : pago.comisionProveedor());
     // El pago real al prestamista requiere el modo marketplace (ADR 0001): aquí se registra la liberación contable.
     liberacion.confirmar(now);
     repository.saveTransaccion(liberacion);

@@ -23,12 +23,13 @@ public class PrestamoPagableEntity {
   @Enumerated(EnumType.STRING) @Column(nullable=false) private EstadoPrestamoPagable estado;
   @Column(name="costo_extension_pendiente") private BigDecimal costoExtensionPendiente;
   @Column(name="cambio_fecha_pendiente_id") private UUID cambioFechaPendienteId;
+  @Column(name="incidencias_pendientes",nullable=false) private int incidenciasPendientes;
   @Column(name="creado_en",nullable=false) private Instant creadoEn;
   @Column(name="actualizado_en",nullable=false) private Instant actualizadoEn;
   protected PrestamoPagableEntity(){}
 
   public static PrestamoPagableEntity from(PrestamoPagable p){PrestamoPagableEntity e=new PrestamoPagableEntity();e.reservaId=p.reservaId();e.copy(p);return e;}
-  public void copy(PrestamoPagable p){prestamoId=p.prestamoId();prestamistaUsuarioId=p.prestamistaUsuarioId();prestatarioUsuarioId=p.prestatarioUsuarioId();desde=p.periodo().desde();hasta=p.periodo().hasta();tarifaDiariaAcordada=p.tarifaDiariaAcordada();garantiaMonetariaAcordada=p.garantiaMonetariaAcordada();moneda=p.moneda();estado=p.estado();costoExtensionPendiente=p.costoExtensionPendiente();cambioFechaPendienteId=p.cambioFechaPendienteId();creadoEn=p.creadoEn();actualizadoEn=p.actualizadoEn();}
-  public PrestamoPagable toDomain(){return new PrestamoPagable(reservaId,prestamoId,prestamistaUsuarioId,prestatarioUsuarioId,new PeriodoPrestamo(desde,hasta),tarifaDiariaAcordada,garantiaMonetariaAcordada,moneda,estado,costoExtensionPendiente,cambioFechaPendienteId,creadoEn,actualizadoEn);}
+  public void copy(PrestamoPagable p){prestamoId=p.prestamoId();prestamistaUsuarioId=p.prestamistaUsuarioId();prestatarioUsuarioId=p.prestatarioUsuarioId();desde=p.periodo().desde();hasta=p.periodo().hasta();tarifaDiariaAcordada=p.tarifaDiariaAcordada();garantiaMonetariaAcordada=p.garantiaMonetariaAcordada();moneda=p.moneda();estado=p.estado();costoExtensionPendiente=p.costoExtensionPendiente();cambioFechaPendienteId=p.cambioFechaPendienteId();incidenciasPendientes=p.incidenciasPendientes();creadoEn=p.creadoEn();actualizadoEn=p.actualizadoEn();}
+  public PrestamoPagable toDomain(){return new PrestamoPagable(reservaId,prestamoId,prestamistaUsuarioId,prestatarioUsuarioId,new PeriodoPrestamo(desde,hasta),tarifaDiariaAcordada,garantiaMonetariaAcordada,moneda,estado,costoExtensionPendiente,cambioFechaPendienteId,incidenciasPendientes,creadoEn,actualizadoEn);}
   public UUID getReservaId(){return reservaId;}
 }

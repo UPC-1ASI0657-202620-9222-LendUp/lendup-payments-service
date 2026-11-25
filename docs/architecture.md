@@ -24,23 +24,25 @@ Pagos y Garantías posee `garantias`, `transacciones_economicas`, la proyección
 
 Componentes adicionales que no aparecen en la figura: `CheckoutCoordinator` (crea la preferencia fuera de la transacción de BD), `EconomicEventRecorder` (arma los eventos del outbox), `PendingReconciliationScheduler` (respaldo del webhook, CD-09) y la proyección `prestamos_pagables`, alimentada también por `reservas.confirmada.v1`.
 
-Capas: `domain` (agregados, enums de la Fig. 11, `PoliticaDeCosto` como Strategy, servicio de dominio), `application` (casos de uso y puertos), `infrastructure` (JPA/MySQL, RabbitMQ, SDK de Mercado Pago, REST a Identidad, scheduler) e `interfaces/rest` (DTOs y errores).
+Capas: `domain` (agregados, enums de la Fig. 11, `PoliticaDeCosto` y `PoliticaDeComision` como Strategy, servicio de dominio), `application` (casos de uso y puertos), `infrastructure` (JPA/MySQL, RabbitMQ, SDK de Mercado Pago, REST a Identidad, scheduler) e `interfaces/rest` (DTOs y errores).
 
 ## Flujos
 
 1. **Cobro (tarifa, extensión, garantía):** valida participación y monto contra la proyección → transacción `PENDIENTE` (y garantía `PENDIENTE`) en una transacción local → preferencia de Checkout Pro fuera de la transacción → guarda `checkout_url`. Idempotente por `clave_idempotencia`.
 2. **Webhook:** firma → registro/dedupe en `notificaciones_proveedor` → consulta del pago en Mercado Pago → en una sola transacción: cambio de estado, auditoría y outbox (`PagoConfirmado`, `PagoRechazado`, `GarantiaConstituida`).
 3. **Conciliación (CD-09):** cada `PENDING_RECONCILIATION_DELAY_MS` busca por `external_reference` los cobros `PENDIENTE` más antiguos que `PENDING_RECONCILIATION_MIN_AGE_MS` y reintenta reembolsos `PENDIENTE`. Ante timeout o circuito abierto no cambia nada (RNF14).
-4. **Préstamo activado:** `LIBERACION_TARIFA` confirmada por cada pago de tarifa/extensión → `TarifaLiberada` (registro contable, ADR 0001).
-5. **Préstamo finalizado:** `DEVOLUCION_GARANTIA` del saldo → reembolso en Mercado Pago → `GarantiaDevuelta`.
-6. **Incidencia resuelta:** `LiquidacionDeGarantiaService` → `RETENCION_GARANTIA` + `GarantiaRetenida`; si queda saldo, devolución parcial → `GarantiaDevuelta`.
-7. **Reserva cancelada (saga):** reembolso de tarifas confirmadas (`REEMBOLSO_TARIFA` → `ReembolsoProcesado`), devolución de garantía constituida y cancelación de cobros/garantías pendientes. Un pago que llega después de cancelar, o un segundo pago de tarifa, se reembolsa automáticamente.
+4. **Préstamo activado:** `LIBERACION_TARIFA` confirmada por cada pago de tarifa/extensión, con la comisión de LendUp y la del proveedor → `TarifaLiberada` con el monto neto del prestamista (registro contable, ADR 0001 y 0003).
+5. **Devolución registrada:** una extensión aceptada y sin pagar deja de corresponder: se cancela su cobro. Si igual se paga, se reembolsa.
+6. **Préstamo finalizado:** `DEVOLUCION_GARANTIA` del saldo → reembolso en Mercado Pago → `GarantiaDevuelta`. Con incidencias pendientes espera a que se resuelvan.
+7. **Incidencia reportada:** la garantía pasa a `RETENIDA_POR_INCIDENCIA` y no se devuelve hasta resolver la última (RF41).
+8. **Incidencia resuelta:** `LiquidacionDeGarantiaService` → `RETENCION_GARANTIA` + `GarantiaRetenida`; si queda saldo, devolución parcial → `GarantiaDevuelta`.
+9. **Reserva cancelada (saga):** reembolso de tarifas confirmadas (`REEMBOLSO_TARIFA` → `ReembolsoProcesado`), devolución de garantía constituida y cancelación de cobros/garantías pendientes. Un pago que llega después de cancelar, o un segundo pago de tarifa, se reembolsa automáticamente.
 
-Los reembolsos se crean `PENDIENTE` en la transacción del evento y se envían a Mercado Pago después del commit con `X-Idempotency-Key` = `clave_idempotencia` (`reembolso:<pago>`, `devolucion-garantia:<garantia>:<motivo>`). Si el proveedor no responde quedan pendientes y la conciliación reintenta con la misma clave; si los rechaza quedan `FALLIDA` y se auditan para revisión manual.
+Los reembolsos se crean `PENDIENTE` en la transacción del evento y se envían a Mercado Pago después del commit con `X-Idempotency-Key` = `clave_idempotencia` (`reembolso:<pago>`, `devolucion-garantia:<garantia>:<motivo>`). Si el proveedor no responde quedan pendientes y la conciliación reintenta con la misma clave; si los rechaza quedan `FALLIDA`, se auditan para revisión manual y se publica `ReembolsoRechazado` para avisar al estudiante (US41).
 
 ## Consistencia
 
-Transactional Outbox con publisher confirms (como Reservas). Inbox por `event_id` en la misma transacción del cambio; reintentos (3) y DLQ `payments.events.v1.dlq`. RabbitMQ entrega al menos una vez; además de la inbox, cada operación económica tiene una clave única, así que un evento repetido no genera instrucciones duplicadas (RNF13). `aggregate_version` de los eventos emitidos es la marca de tiempo en milisegundos.
+Transactional Outbox con publisher confirms (como Reservas). Un evento sin suscriptores espera sin agotar sus intentos y sale cuando el consumidor declara su cola. Inbox por `event_id` en la misma transacción del cambio; reintentos (3) y DLQ `payments.events.v1.dlq`. RabbitMQ entrega al menos una vez; además de la inbox, cada operación económica tiene una clave única, así que un evento repetido no genera instrucciones duplicadas (RNF13). `aggregate_version` de los eventos emitidos es la marca de tiempo en milisegundos.
 
 ## Seguridad
 
@@ -50,5 +52,6 @@ Firebase ID token validado en el servicio (revocación y `email_verified`), UID 
 
 - Tablas técnicas con los nombres de Reservas (`outbox_events`, `processed_events`) en vez de `outbox_eventos`/`mensajes_procesados`.
 - Columna adicional `checkout_url` en `transacciones_economicas`; identificadores `BINARY(16)`.
-- `RETENIDA_POR_INCIDENCIA` existe pero no se usa: Pagos no consume `IncidenciaReportada`.
+- Pagos consume `IncidenciaReportada` y `DevolucionRegistrada`, que no están en la Tabla 19: las exige RF41 y evitan cobrar una extensión que ya no corresponde.
+- Columnas adicionales `comision_lendup` (transacciones) e `incidencias_pendientes` (proyección), migración V3.
 - Los reembolsos rechazados quedan `FALLIDA` (no existe `REQUIERE_REVISION` en la Fig. 11).

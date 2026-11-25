@@ -63,6 +63,14 @@ class EconomicEventConsumerTest {
     verify(guarantees).registrarIncidenciaResuelta(argThat(c -> c.decision() == DecisionGarantia.AFECTACION_PARCIAL && c.incidenciaId().equals(incidencia)), eq("corr"));
   }
 
+  @Test void devolucionRegistradaEIncidenciaReportadaLleganASusCasosDeUso() {
+    UUID prestamo = UUID.randomUUID(), incidencia = UUID.randomUUID();
+    consumer.handle("prestamos.devolucion-registrada.v1", event(UUID.randomUUID(), "DevolucionRegistrada", Map.of("prestamo_id", prestamo)));
+    consumer.handle("evidencias.incidencia-reportada.v1", event(UUID.randomUUID(), "IncidenciaReportada", Map.of("prestamo_id", prestamo, "incidencia_id", incidencia)));
+    verify(payments).registrarDevolucion(prestamo, "corr");
+    verify(guarantees).registrarIncidenciaReportada(prestamo, incidencia, "corr");
+  }
+
   @Test void reembolsosCreadosSeEjecutanTrasProcesar() {
     UUID reembolso = UUID.randomUUID();
     when(payments.registrarReservaCancelada(any(), any())).thenReturn(List.of(reembolso));

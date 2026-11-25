@@ -30,6 +30,7 @@ Característica: US41 Recibir reembolso por cancelación
     Cuando la reserva se cancela antes de la entrega
     Entonces hay 2 reembolsos en estado "FALLIDA"
     Y se publica 0 eventos "ReembolsoProcesado"
+    Y se publica 2 eventos "ReembolsoRechazado"
 
   Escenario: El mismo evento de cancelación no genera reembolsos duplicados
     Cuando la reserva se cancela antes de la entrega

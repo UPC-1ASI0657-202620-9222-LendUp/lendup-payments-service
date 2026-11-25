@@ -6,7 +6,8 @@ Microservicio Java 21/Spring Boot 4 para el bounded context de Pagos y Garantía
 
 - **Mercado Pago:** cobros con Checkout Pro (preferencia con `external_reference` = id de la transacción), webhook con firma `x-signature`, consulta del pago como fuente de verdad, conciliación programada de pendientes y reembolsos totales o parciales con `X-Idempotency-Key`. Timeout por llamada y circuit breaker de Resilience4j. El pago real al prestamista (marketplace) queda fuera de alcance: la liberación de tarifa es un registro contable (ver [ADR 0001](docs/decisions/0001-mercado-pago-checkout.md)).
 - **Garantía:** se cobra con Checkout Pro y se reembolsa total o parcialmente ([ADR 0002](docs/decisions/0002-guarantee-handling.md)).
-- **Contratos pendientes:** Pagos necesita eventos de Préstamos (préstamo creado con `prestamo_id` + `reserva_id`, activado, finalizado, extensión aceptada) y de Evidencias (`IncidenciaResuelta`). El monolito aún no los publica; las routing keys son configurables y los payloads esperados están en `contracts/events/v1/consumed-events.schema.json`. Sin el evento "préstamo creado", `POST /pagos` y `POST /garantias` responden `404` porque la proyección no conoce el `prestamo_id`.
+- **Eventos que necesita:** de Préstamos (creado, activado, devolución registrada, finalizado y extensión aceptada, ya publicados por `lendup-loans-service`) y de Evidencias (`IncidenciaReportada` e `IncidenciaResuelta`, aún sin microservicio). Los payloads están en `contracts/events/v1/consumed-events.schema.json`. Sin `PrestamoCreado`, `POST /pagos` y `POST /garantias` responden `404` porque la proyección no conoce el `prestamo_id`.
+- **Comisión de LendUp:** `LENDUP_COMMISSION_PERCENT` (18 por defecto) se descuenta de lo que recibe el prestamista; se ve antes de pagar en `GET /prestamos/{id}/desglose-pago` ([ADR 0003](docs/decisions/0003-lendup-commission.md)).
 - **Identidad:** UID de Firebase → `usuario_id` mediante `IDENTITY_FIREBASE_USER_URI_TEMPLATE`. Sin configurar, las rutas autenticadas responden `503`.
 
 Detalles: [arquitectura](docs/architecture.md), [API](docs/api-contract.md), [eventos](docs/events.md), [pruebas](docs/testing.md), [AWS](docs/aws-handoff.md), [migración](docs/migration-from-monolith.md).
@@ -45,7 +46,7 @@ Los reembolsos también se simulan. El simulador solo existe en modo simulado; c
 
 ### Datos previos que necesita un pago
 
-`POST /pagos` y `POST /garantias` responden `404 Préstamo no encontrado` hasta que Pagos recibe dos eventos: `reservas.confirmada.v1` (Reservas) y `prestamos.creado.v1`. Ningún servicio publica todavía el segundo; es un contrato pendiente de Préstamos. Mientras tanto, la carpeta *1. Eventos simulados* de la colección Postman publica ambos en RabbitMQ.
+`POST /pagos` y `POST /garantias` responden `404 Préstamo no encontrado` hasta que Pagos recibe dos eventos: `reservas.confirmada.v1` (Reservas) y `prestamos.creado.v1`. El segundo lo publica `lendup-loans-service`. Para probar Pagos solo, la carpeta *1. Eventos simulados* de la colección Postman publica ambos en RabbitMQ.
 
 El `prestatario_usuario_id` del evento debe ser tu `usuario.id` en Identidad (la carpeta *0b. Preparación* lo obtiene con `GET /estudiantes/me`). Si no, la respuesta es 403.
 
