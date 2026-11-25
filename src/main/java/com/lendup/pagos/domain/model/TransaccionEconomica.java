@@ -17,6 +17,7 @@ public final class TransaccionEconomica {
   private final BigDecimal monto;
   private final String moneda;
   private BigDecimal comisionProveedor;
+  private BigDecimal comisionLendup;
   private final String medioPagoSeleccionado;
   private String referenciaProveedor;
   private final String claveIdempotencia;
@@ -27,7 +28,7 @@ public final class TransaccionEconomica {
 
   public TransaccionEconomica(UUID id, UUID prestamoId, UUID garantiaId, UUID cambioFechaPrestamoId, UUID incidenciaId,
                               TipoTransaccion tipo, EstadoTransaccion estado, BigDecimal monto, String moneda,
-                              BigDecimal comisionProveedor, String medioPagoSeleccionado, String referenciaProveedor,
+                              BigDecimal comisionProveedor, BigDecimal comisionLendup, String medioPagoSeleccionado, String referenciaProveedor,
                               String claveIdempotencia, String checkoutUrl, Instant solicitadaEn, Instant confirmadaEn,
                               Instant actualizadaEn) {
     if (prestamoId == null || tipo == null || estado == null) throw new IllegalArgumentException("Transacción incompleta");
@@ -35,7 +36,7 @@ public final class TransaccionEconomica {
     if (claveIdempotencia == null || claveIdempotencia.isBlank()) throw new IllegalArgumentException("Se requiere clave_idempotencia");
     this.id = id; this.prestamoId = prestamoId; this.garantiaId = garantiaId; this.cambioFechaPrestamoId = cambioFechaPrestamoId;
     this.incidenciaId = incidenciaId; this.tipo = tipo; this.estado = estado; this.monto = monto.setScale(2, RoundingMode.HALF_UP);
-    this.moneda = moneda; this.comisionProveedor = comisionProveedor; this.medioPagoSeleccionado = medioPagoSeleccionado;
+    this.moneda = moneda; this.comisionProveedor = comisionProveedor; this.comisionLendup = comisionLendup; this.medioPagoSeleccionado = medioPagoSeleccionado;
     this.referenciaProveedor = referenciaProveedor; this.claveIdempotencia = claveIdempotencia; this.checkoutUrl = checkoutUrl;
     this.solicitadaEn = solicitadaEn; this.confirmadaEn = confirmadaEn; this.actualizadaEn = actualizadaEn;
   }
@@ -45,7 +46,21 @@ public final class TransaccionEconomica {
                                           TipoTransaccion tipo, BigDecimal monto, String moneda, String medio,
                                           String referenciaProveedor, String claveIdempotencia, Instant now) {
     return new TransaccionEconomica(UUID.randomUUID(), prestamoId, garantiaId, cambioFechaPrestamoId, incidenciaId, tipo,
-        EstadoTransaccion.PENDIENTE, monto, moneda, null, medio, referenciaProveedor, claveIdempotencia, null, now, null, now);
+        EstadoTransaccion.PENDIENTE, monto, moneda, null, null, medio, referenciaProveedor, claveIdempotencia, null, now, null, now);
+  }
+
+  /** Liberación de la tarifa: reparte el monto entre LendUp, el proveedor y el prestamista. */
+  public void registrarComisiones(BigDecimal lendup, BigDecimal proveedor) {
+    if (tipo != TipoTransaccion.LIBERACION_TARIFA) throw new IllegalStateException("Solo la liberación de tarifa registra la comisión de LendUp");
+    comisionLendup = lendup; comisionProveedor = proveedor;
+  }
+
+  /** Lo que corresponde al prestamista; nunca es negativo. */
+  public BigDecimal montoNeto() {
+    BigDecimal neto = monto;
+    if (comisionLendup != null) neto = neto.subtract(comisionLendup);
+    if (comisionProveedor != null) neto = neto.subtract(comisionProveedor);
+    return neto.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
   }
 
   public void asignarCheckout(String url, Instant now) {
@@ -97,6 +112,7 @@ public final class TransaccionEconomica {
   public UUID cambioFechaPrestamoId() { return cambioFechaPrestamoId; } public UUID incidenciaId() { return incidenciaId; }
   public TipoTransaccion tipo() { return tipo; } public EstadoTransaccion estado() { return estado; } public BigDecimal monto() { return monto; }
   public String moneda() { return moneda; } public BigDecimal comisionProveedor() { return comisionProveedor; }
+  public BigDecimal comisionLendup() { return comisionLendup; }
   public String medioPagoSeleccionado() { return medioPagoSeleccionado; } public String referenciaProveedor() { return referenciaProveedor; }
   public String claveIdempotencia() { return claveIdempotencia; } public String checkoutUrl() { return checkoutUrl; }
   public Instant solicitadaEn() { return solicitadaEn; } public Instant confirmadaEn() { return confirmadaEn; } public Instant actualizadaEn() { return actualizadaEn; }

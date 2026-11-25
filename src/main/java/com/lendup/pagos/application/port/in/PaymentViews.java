@@ -23,6 +23,10 @@ public final class PaymentViews {
 
   public record MedioPagoView(String codigo, String nombre, String estado) {}
 
+  /** La comisión del proveedor es null hasta que Mercado Pago la informa al confirmar el pago. */
+  public record DesglosePagoView(UUID prestamoId, String moneda, BigDecimal tarifa, BigDecimal comisionLendup, BigDecimal comisionProveedor,
+                                 BigDecimal garantia, BigDecimal totalPrestatario, BigDecimal netoPrestamista) {}
+
   public record GarantiaView(UUID id, UUID prestamoId, BigDecimal montoAcordado, String moneda, String estado, BigDecimal montoConstituido,
                              BigDecimal montoAfectado, BigDecimal montoDevuelto, Instant constituidaEn, Instant cerradaEn,
                              Instant creadaEn, Instant actualizadaEn) {
@@ -33,13 +37,13 @@ public final class PaymentViews {
   }
 
   public record TransaccionView(UUID id, UUID prestamoId, UUID garantiaId, UUID cambioFechaPrestamoId, UUID incidenciaId, String tipo,
-                                String estado, BigDecimal monto, String moneda, BigDecimal comisionProveedor, String medioPagoSeleccionado,
+                                String estado, BigDecimal monto, String moneda, BigDecimal comisionProveedor, BigDecimal comisionLendup, String medioPagoSeleccionado,
                                 String referenciaProveedor, String claveIdempotencia, String checkoutUrl, Instant solicitadaEn,
                                 Instant confirmadaEn, Instant actualizadaEn, GarantiaView garantia) {
     public static TransaccionView from(TransaccionEconomica t) { return from(t, null); }
     public static TransaccionView from(TransaccionEconomica t, Garantia g) {
       return new TransaccionView(t.id(), t.prestamoId(), t.garantiaId(), t.cambioFechaPrestamoId(), t.incidenciaId(), t.tipo().name(),
-          t.estado().name(), t.monto(), t.moneda(), t.comisionProveedor(), t.medioPagoSeleccionado(), t.referenciaProveedor(),
+          t.estado().name(), t.monto(), t.moneda(), t.comisionProveedor(), t.comisionLendup(), t.medioPagoSeleccionado(), t.referenciaProveedor(),
           t.claveIdempotencia(), t.checkoutUrl(), t.solicitadaEn(), t.confirmadaEn(), t.actualizadaEn(), g == null ? null : GarantiaView.from(g));
     }
   }

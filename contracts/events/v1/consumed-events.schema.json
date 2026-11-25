@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://lendup.example/contracts/events/v1/consumed-events.schema.json",
   "title": "Events consumed by Payments v1",
-  "description": "Envelope estándar de lendup.domain.events. ReservaConfirmada y ReservaCancelada ya los publica Reservas. Los demás son contratos PROPUESTOS por Pagos: su productor (monolito) aún no existe y sus routing keys son configurables.",
+  "description": "Envelope estándar de lendup.domain.events. Reservas y Préstamos ya publican los suyos. Los de Evidencias son contratos PROPUESTOS: su microservicio aún no existe. Las routing keys son configurables.",
   "type": "object",
   "required": ["event_id", "event_type", "event_version", "aggregate_id", "occurred_at", "correlation_id", "payload"],
   "properties": {
@@ -19,8 +19,9 @@
     { "if": { "properties": { "event_type": { "const": "ReservaConfirmada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/reservaConfirmada" } } } },
     { "if": { "properties": { "event_type": { "const": "ReservaCancelada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/reservaCancelada" } } } },
     { "if": { "properties": { "event_type": { "const": "PrestamoCreado" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamoCreado" } } } },
-    { "if": { "properties": { "event_type": { "enum": ["PrestamoActivado", "PrestamoFinalizado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamo" } } } },
+    { "if": { "properties": { "event_type": { "enum": ["PrestamoActivado", "DevolucionRegistrada", "PrestamoFinalizado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamo" } } } },
     { "if": { "properties": { "event_type": { "const": "ExtensionAceptada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/extensionAceptada" } } } },
+    { "if": { "properties": { "event_type": { "const": "IncidenciaReportada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/incidenciaReportada" } } } },
     { "if": { "properties": { "event_type": { "const": "IncidenciaResuelta" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/incidenciaResuelta" } } } }
   ],
   "$defs": {
@@ -45,17 +46,17 @@
       "properties": { "reserva_id": { "type": "string", "format": "uuid" }, "solicitud_id": { "type": "string", "format": "uuid" } }
     },
     "prestamoCreado": {
-      "description": "PENDIENTE. Default LOAN_CREATED_ROUTING_KEY=prestamos.creado.v1. Relaciona el préstamo con la reserva.",
+      "description": "Disponible (Préstamos). Default LOAN_CREATED_ROUTING_KEY=prestamos.creado.v1. Relaciona el préstamo con la reserva.",
       "type": "object", "required": ["prestamo_id", "reserva_id"],
       "properties": { "prestamo_id": { "type": "string", "format": "uuid" }, "reserva_id": { "type": "string", "format": "uuid" } }
     },
     "prestamo": {
-      "description": "PENDIENTE. PrestamoActivado (LOAN_ACTIVATED_ROUTING_KEY=prestamos.activado.v1) y PrestamoFinalizado (LOAN_FINISHED_ROUTING_KEY=prestamos.finalizado.v1).",
+      "description": "Disponibles (Préstamos). PrestamoActivado (LOAN_ACTIVATED_ROUTING_KEY=prestamos.activado.v1), DevolucionRegistrada (LOAN_RETURNED_ROUTING_KEY=prestamos.devolucion-registrada.v1) y PrestamoFinalizado (LOAN_FINISHED_ROUTING_KEY=prestamos.finalizado.v1).",
       "type": "object", "required": ["prestamo_id"],
       "properties": { "prestamo_id": { "type": "string", "format": "uuid" } }
     },
     "extensionAceptada": {
-      "description": "PENDIENTE. EXTENSION_ACCEPTED_ROUTING_KEY=prestamos.extension-aceptada.v1.",
+      "description": "Disponible (Préstamos). EXTENSION_ACCEPTED_ROUTING_KEY=prestamos.extension-aceptada.v1.",
       "type": "object", "required": ["prestamo_id", "cambio_fecha_prestamo_id", "costo_adicional"],
       "properties": {
         "prestamo_id": { "type": "string", "format": "uuid" },
@@ -64,8 +65,13 @@
         "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" }
       }
     },
+    "incidenciaReportada": {
+      "description": "PENDIENTE (Evidencias). INCIDENT_REPORTED_ROUTING_KEY=evidencias.incidencia-reportada.v1. Retiene la garantía (RF41).",
+      "type": "object", "required": ["incidencia_id", "prestamo_id"],
+      "properties": { "incidencia_id": { "type": "string", "format": "uuid" }, "prestamo_id": { "type": "string", "format": "uuid" } }
+    },
     "incidenciaResuelta": {
-      "description": "PENDIENTE. INCIDENT_RESOLVED_ROUTING_KEY=evidencias.incidencia-resuelta.v1. Valores de decisión iguales a incidencias.decision_garantia del monolito.",
+      "description": "PENDIENTE (Evidencias). INCIDENT_RESOLVED_ROUTING_KEY=evidencias.incidencia-resuelta.v1. Valores de decisión iguales a incidencias.decision_garantia del monolito.",
       "type": "object", "required": ["incidencia_id", "prestamo_id", "decision_garantia"],
       "properties": {
         "incidencia_id": { "type": "string", "format": "uuid" },

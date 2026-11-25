@@ -20,6 +20,7 @@ public class TransaccionEconomicaEntity {
   @Column(nullable=false) private BigDecimal monto;
   @Column(nullable=false,length=3) private String moneda;
   @Column(name="comision_proveedor") private BigDecimal comisionProveedor;
+  @Column(name="comision_lendup") private BigDecimal comisionLendup;
   @Column(name="medio_pago_seleccionado") private String medioPagoSeleccionado;
   @Column(name="referencia_proveedor") private String referenciaProveedor;
   @Column(name="clave_idempotencia",nullable=false) private String claveIdempotencia;
@@ -30,7 +31,7 @@ public class TransaccionEconomicaEntity {
   protected TransaccionEconomicaEntity(){}
 
   public static TransaccionEconomicaEntity from(TransaccionEconomica t){TransaccionEconomicaEntity e=new TransaccionEconomicaEntity();e.id=t.id();e.copy(t);return e;}
-  public void copy(TransaccionEconomica t){prestamoId=t.prestamoId();garantiaId=t.garantiaId();cambioFechaPrestamoId=t.cambioFechaPrestamoId();incidenciaId=t.incidenciaId();tipo=t.tipo();estado=t.estado();monto=t.monto();moneda=t.moneda();comisionProveedor=t.comisionProveedor();medioPagoSeleccionado=t.medioPagoSeleccionado();referenciaProveedor=t.referenciaProveedor();claveIdempotencia=t.claveIdempotencia();checkoutUrl=t.checkoutUrl();solicitadaEn=t.solicitadaEn();confirmadaEn=t.confirmadaEn();actualizadaEn=t.actualizadaEn();}
-  public TransaccionEconomica toDomain(){return new TransaccionEconomica(id,prestamoId,garantiaId,cambioFechaPrestamoId,incidenciaId,tipo,estado,monto,moneda,comisionProveedor,medioPagoSeleccionado,referenciaProveedor,claveIdempotencia,checkoutUrl,solicitadaEn,confirmadaEn,actualizadaEn);}
+  public void copy(TransaccionEconomica t){prestamoId=t.prestamoId();garantiaId=t.garantiaId();cambioFechaPrestamoId=t.cambioFechaPrestamoId();incidenciaId=t.incidenciaId();tipo=t.tipo();estado=t.estado();monto=t.monto();moneda=t.moneda();comisionProveedor=t.comisionProveedor();comisionLendup=t.comisionLendup();medioPagoSeleccionado=t.medioPagoSeleccionado();referenciaProveedor=t.referenciaProveedor();claveIdempotencia=t.claveIdempotencia();checkoutUrl=t.checkoutUrl();solicitadaEn=t.solicitadaEn();confirmadaEn=t.confirmadaEn();actualizadaEn=t.actualizadaEn();}
+  public TransaccionEconomica toDomain(){return new TransaccionEconomica(id,prestamoId,garantiaId,cambioFechaPrestamoId,incidenciaId,tipo,estado,monto,moneda,comisionProveedor,comisionLendup,medioPagoSeleccionado,referenciaProveedor,claveIdempotencia,checkoutUrl,solicitadaEn,confirmadaEn,actualizadaEn);}
   public UUID getId(){return id;}
 }

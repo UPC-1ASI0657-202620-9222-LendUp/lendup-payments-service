@@ -86,6 +86,57 @@ class GuaranteeApplicationServiceTest {
     assertFalse(f.eventTypes().contains("GarantiaDevuelta"));
   }
 
+  // ---- Incidencias pendientes (RF41, US36 criterio 3) ----
+
+  private List<UUID> resolver(UUID prestamo, UUID incidencia, DecisionGarantia decision, String afectado) {
+    return f.guarantees.registrarIncidenciaResuelta(new IncidenciaResueltaCommand(incidencia, prestamo, decision, afectado == null ? null : new BigDecimal(afectado)), "corr");
+  }
+
+  @Test void unaIncidenciaReportadaRetieneLaGarantia() {
+    UUID prestamo = f.prestamoReservado(new BigDecimal("20"), monto);
+    UUID garantia = garantiaConstituida(prestamo);
+    f.guarantees.registrarIncidenciaReportada(prestamo, UUID.randomUUID(), "corr");
+    assertEquals(EstadoGarantia.RETENIDA_POR_INCIDENCIA, f.repository.garantias.get(garantia).estado());
+    assertTrue(f.auditActions.contains("GARANTIA:RETENER_POR_INCIDENCIA:RETENIDA_POR_INCIDENCIA"));
+  }
+
+  @Test void conUnaIncidenciaPendienteFinalizarNoDevuelveLaGarantia() {
+    UUID prestamo = f.prestamoReservado(new BigDecimal("20"), monto);
+    UUID garantia = garantiaConstituida(prestamo);
+    UUID incidencia = UUID.randomUUID();
+    f.guarantees.registrarIncidenciaReportada(prestamo, incidencia, "corr");
+    assertTrue(f.guarantees.registrarPrestamoFinalizado(prestamo, "corr").isEmpty());
+    ejecutar(resolver(prestamo, incidencia, DecisionGarantia.SIN_AFECTACION, null));
+    assertEquals(EstadoGarantia.DEVUELTA, f.repository.garantias.get(garantia).estado());
+  }
+
+  @Test void conDosIncidenciasElSaldoEsperaALaUltimaResolucion() {
+    UUID prestamo = f.prestamoReservado(new BigDecimal("20"), monto);
+    UUID garantia = garantiaConstituida(prestamo);
+    UUID a = UUID.randomUUID(), b = UUID.randomUUID();
+    f.guarantees.registrarIncidenciaReportada(prestamo, a, "corr");
+    f.guarantees.registrarIncidenciaReportada(prestamo, b, "corr");
+    assertTrue(resolver(prestamo, a, DecisionGarantia.SIN_AFECTACION, null).isEmpty());
+    assertEquals(EstadoGarantia.RETENIDA_POR_INCIDENCIA, f.repository.garantias.get(garantia).estado());
+    ejecutar(resolver(prestamo, b, DecisionGarantia.AFECTACION_PARCIAL, "20"));
+    var g = f.repository.garantias.get(garantia);
+    assertEquals(EstadoGarantia.AFECTADA_PARCIALMENTE, g.estado());
+    assertEquals(new BigDecimal("30.00"), g.montoDevuelto());
+  }
+
+  @Test void unaResolucionSinReporteConocidoNoDejaContadoresNegativos() {
+    UUID prestamo = f.prestamoReservado(new BigDecimal("20"), monto);
+    garantiaConstituida(prestamo);
+    resolver(prestamo, UUID.randomUUID(), DecisionGarantia.AFECTACION_PARCIAL, "20");
+    assertEquals(0, f.repository.findProyeccionByPrestamo(prestamo).orElseThrow().incidenciasPendientes());
+  }
+
+  @Test void unaIncidenciaSinGarantiaSoloSeCuenta() {
+    UUID prestamo = f.prestamoReservado(new BigDecimal("20"), null);
+    f.guarantees.registrarIncidenciaReportada(prestamo, UUID.randomUUID(), "corr");
+    assertEquals(1, f.repository.findProyeccionByPrestamo(prestamo).orElseThrow().incidenciasPendientes());
+  }
+
   @Test void cancelacionDevuelveGarantiaConstituidaYCancelaLaPendiente() {
     UUID prestamo = f.prestamoReservado(new BigDecimal("20"), monto);
     UUID garantia = garantiaConstituida(prestamo);
@@ -106,6 +157,7 @@ class GuaranteeApplicationServiceTest {
     var reembolsos = f.guarantees.registrarPrestamoFinalizado(prestamo, "corr");
     ejecutar(reembolsos);
     assertEquals(EstadoTransaccion.FALLIDA, f.repository.transacciones.get(reembolsos.getFirst()).estado());
+    assertEquals("DEVOLUCION_GARANTIA", f.ultimo("ReembolsoRechazado").get("tipo"));
     assertEquals(EstadoGarantia.CONSTITUIDA, f.repository.garantias.get(garantia).estado());
   }
 }

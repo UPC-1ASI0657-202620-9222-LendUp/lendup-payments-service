@@ -26,6 +26,14 @@ Característica: US36 Recibir devolución de garantía monetaria
     Entonces Mercado Pago reembolsa 0.00 PEN de la garantía
     Y la garantía queda en estado "AFECTADA_TOTALMENTE" por 50.00 PEN
 
+  Escenario: Con una incidencia pendiente la garantía queda retenida hasta resolverla
+    Dado que se reporta una incidencia
+    Entonces la garantía queda en estado "RETENIDA_POR_INCIDENCIA" por 50.00 PEN
+    Cuando el préstamo finaliza
+    Entonces Mercado Pago reembolsa 0.00 PEN de la garantía
+    Cuando se resuelve una incidencia con decisión "AFECTACION_PARCIAL" por 20.00 PEN
+    Entonces Mercado Pago reembolsa 30.00 PEN de la garantía
+
   Escenario: Un evento repetido no genera una segunda devolución
     Cuando el préstamo finaliza
     Y el préstamo finaliza

@@ -50,6 +50,20 @@ public final class Garantia {
     estado = EstadoGarantia.CANCELADA; cerradaEn = now; actualizadaEn = now;
   }
 
+  /** Con una incidencia sin resolver la garantía no se devuelve (RF41). Devuelve true si el estado cambió. */
+  public boolean retenerPorIncidencia(Instant now) {
+    if (estado != EstadoGarantia.CONSTITUIDA) return false;
+    estado = EstadoGarantia.RETENIDA_POR_INCIDENCIA; actualizadaEn = now;
+    return true;
+  }
+
+  /** Ya no quedan incidencias y ninguna la afectó: vuelve a estar disponible para devolverse. */
+  public boolean liberarRetencion(Instant now) {
+    if (estado != EstadoGarantia.RETENIDA_POR_INCIDENCIA) return false;
+    estado = EstadoGarantia.CONSTITUIDA; actualizadaEn = now;
+    return true;
+  }
+
   /** Aplica la parte afectada por una incidencia resuelta. */
   public void aplicarAfectacion(BigDecimal monto, Instant now) {
     exigirConstituida();
