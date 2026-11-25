@@ -79,6 +79,8 @@ public class EconomicEventConsumer {
       payments.registrarExtensionAceptada(uuid(p, "prestamo_id"), uuid(p, "cambio_fecha_prestamo_id"), decimal(p, "costo_adicional"), correlationId);
       return List.of();
     }
+    if (routes.loanReturnedRoutingKey().equals(routingKey)) { payments.registrarDevolucion(uuid(p, "prestamo_id"), correlationId); return List.of(); }
+    if (routes.incidentReportedRoutingKey().equals(routingKey)) { guarantees.registrarIncidenciaReportada(uuid(p, "prestamo_id"), uuid(p, "incidencia_id"), correlationId); return List.of(); }
     if (routes.loanFinishedRoutingKey().equals(routingKey)) return guarantees.registrarPrestamoFinalizado(uuid(p, "prestamo_id"), correlationId);
     if (routes.incidentResolvedRoutingKey().equals(routingKey)) {
       return guarantees.registrarIncidenciaResuelta(new IncidenciaResueltaCommand(uuid(p, "incidencia_id"), uuid(p, "prestamo_id"),

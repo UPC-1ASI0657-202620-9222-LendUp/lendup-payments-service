@@ -44,10 +44,9 @@ public class EconomicEventRecorder {
 
   public void tarifaLiberada(TransaccionEconomica liberacion, TransaccionEconomica pago, PrestamoPagable p, String correlationId) {
     Map<String, Object> payload = transaccion(liberacion, p);
-    BigDecimal comision = pago.comisionProveedor() == null ? BigDecimal.ZERO.setScale(2) : pago.comisionProveedor();
     payload.put("transaccion_pago_id", pago.id());
-    payload.put("comision_proveedor", comision);
-    payload.put("monto_neto_prestamista", pago.monto().subtract(comision));
+    payload.put("comision_lendup", liberacion.comisionLendup());
+    payload.put("monto_neto_prestamista", liberacion.montoNeto());
     append("TarifaLiberada", liberacion.id(), payload, correlationId);
   }
 
@@ -72,6 +71,13 @@ public class EconomicEventRecorder {
     Map<String, Object> payload = transaccion(reembolso, p);
     payload.put("referencia_reembolso", referenciaReembolso == null ? "" : referenciaReembolso);
     append("ReembolsoProcesado", reembolso.id(), payload, correlationId);
+  }
+
+  /** US41, criterio 5: el reembolso queda como no completado y se informa al estudiante. */
+  public void reembolsoRechazado(TransaccionEconomica reembolso, PrestamoPagable p, String detalle, String correlationId) {
+    Map<String, Object> payload = transaccion(reembolso, p);
+    payload.put("motivo", detalle == null ? "" : detalle);
+    append("ReembolsoRechazado", reembolso.id(), payload, correlationId);
   }
 
   private Map<String, Object> transaccion(TransaccionEconomica t, PrestamoPagable p) {

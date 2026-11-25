@@ -45,7 +45,7 @@ class FrontendContractTest {
   private TransaccionView view(String tipo, GarantiaView garantia) {
     Instant now = Instant.parse("2026-11-01T15:00:00Z");
     return new TransaccionView(UUID.randomUUID(), prestamo, garantia == null ? null : garantia.id(), null, null, tipo, "PENDIENTE", new BigDecimal("60.00"), "PEN",
-        null, "MERCADO_PAGO", null, "pago-1", "https://www.mercadopago.com.pe/checkout/v1/redirect?pref_id=1", now, null, now, garantia);
+        null, null, "MERCADO_PAGO", null, "pago-1", "https://www.mercadopago.com.pe/checkout/v1/redirect?pref_id=1", now, null, now, garantia);
   }
 
   @Test void mediosDePagoConCodigoNombreYEstado() throws Exception {
@@ -86,6 +86,15 @@ class FrontendContractTest {
     when(guarantees.constituirGarantia(any(), any(), any())).thenThrow(new BusinessConflictException("Garantía ya registrada"));
     mvc.perform(post("/api/v1/garantias").contentType(MediaType.APPLICATION_JSON).content("{\"prestamo_id\":\"" + prestamo + "\",\"medio_pago_seleccionado\":\"MERCADO_PAGO\",\"clave_idempotencia\":\"g\"}"))
         .andExpect(status().isConflict()).andExpect(jsonPath("$.status").value(409)).andExpect(jsonPath("$.message").value("Garantía ya registrada"));
+  }
+
+  @Test void elDesgloseSeparaTarifaComisionesGarantiaYTotal() throws Exception {
+    when(payments.desglosarPago(user, prestamo)).thenReturn(new DesglosePagoView(prestamo, "PEN", new BigDecimal("60.00"), new BigDecimal("6.00"), null,
+        new BigDecimal("50.00"), new BigDecimal("110.00"), new BigDecimal("54.00")));
+    mvc.perform(get("/api/v1/prestamos/{id}/desglose-pago", prestamo)).andExpect(status().isOk())
+        .andExpect(jsonPath("$.prestamo_id").value(prestamo.toString())).andExpect(jsonPath("$.moneda").value("PEN"))
+        .andExpect(jsonPath("$.tarifa").value(60.00)).andExpect(jsonPath("$.comision_lendup").value(6.00)).andExpect(jsonPath("$.garantia").value(50.00))
+        .andExpect(jsonPath("$.total_prestatario").value(110.00)).andExpect(jsonPath("$.neto_prestamista").value(54.00));
   }
 
   @Test void transaccionesExponenLosCamposDelMapper() throws Exception {

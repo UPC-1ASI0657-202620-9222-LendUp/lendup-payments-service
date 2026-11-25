@@ -5,6 +5,7 @@ import com.lendup.pagos.application.port.out.AuditPort;
 import com.lendup.pagos.application.port.out.OutboxPort;
 import com.lendup.pagos.application.service.*;
 import com.lendup.pagos.domain.event.EventEnvelope;
+import com.lendup.pagos.domain.model.PoliticaDeComision;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -24,14 +25,16 @@ public class PaymentsTestFixture {
   public final UUID prestamista = UUID.randomUUID();
   public final UUID prestatario = UUID.randomUUID();
 
-  public PaymentsTestFixture() {
+  public PaymentsTestFixture() { this(BigDecimal.ZERO); }
+
+  public PaymentsTestFixture(BigDecimal comisionPorcentaje) {
     OutboxPort outbox = events::add;
     AuditPort audit = (type, id, action, prev, next, actor, corr) -> auditActions.add(type + ":" + action + ":" + next);
     TransactionOperations tx = TransactionOperations.withoutTransaction();
     EconomicEventRecorder recorder = new EconomicEventRecorder(outbox, clock);
     CheckoutCoordinator checkout = new CheckoutCoordinator(repository, gateway, tx, clock);
     guarantees = new GuaranteeApplicationService(repository, checkout, recorder, audit, tx, clock);
-    payments = new PaymentApplicationService(repository, gateway, guarantees, checkout, recorder, audit, tx, clock);
+    payments = new PaymentApplicationService(repository, gateway, guarantees, checkout, recorder, audit, tx, clock, PoliticaDeComision.porcentaje(comisionPorcentaje));
   }
 
   /** Simula reservas.confirmada.v1 + el evento de Préstamos que asigna el prestamo_id. Periodo de 48 h + 1 s. */
@@ -48,6 +51,8 @@ public class PaymentsTestFixture {
   }
 
   public UUID reservaDe(UUID prestamoId) { return repository.findProyeccionByPrestamo(prestamoId).orElseThrow().reservaId(); }
+
+  public Map<String, Object> ultimo(String tipo) { return events.stream().filter(e -> e.eventType().equals(tipo)).reduce((a, b) -> b).orElseThrow(() -> new AssertionError("No se publicó " + tipo)).payload(); }
 
   public List<String> eventTypes() { return events.stream().map(EventEnvelope::eventType).toList(); }
 }

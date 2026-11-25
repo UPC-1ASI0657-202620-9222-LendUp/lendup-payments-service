@@ -62,7 +62,7 @@ class MySqlPaymentsIT {
   @Autowired WebApplicationContext context; @Autowired PaymentApplicationService payments; @Autowired EconomicEventConsumer consumer; @Autowired JsonMapper json;
   @Autowired TransaccionEconomicaJpaRepository transacciones; @Autowired GarantiaJpaRepository garantias; @Autowired PrestamoPagableJpaRepository proyecciones;
   @Autowired NotificacionProveedorJpaRepository notificaciones; @Autowired OutboxJpaRepository outbox; @Autowired ProcessedEventJpaRepository processed;
-  @Autowired AuditJpaRepository audits; @Autowired PlatformTransactionManager transactionManager;
+  @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc; @Autowired AuditJpaRepository audits; @Autowired PlatformTransactionManager transactionManager;
   MockMvc mvc; UUID prestamo, reserva;
 
   @BeforeEach void setup() {
@@ -99,6 +99,27 @@ class MySqlPaymentsIT {
     return mvc.perform(post("/api/v1/webhooks/mercado-pago").queryParam("data.id", paymentId).queryParam("type", "payment")
         .header("x-signature", signature).header("x-request-id", "req-" + notificationId).contentType(MediaType.APPLICATION_JSON)
         .content("{\"id\":" + notificationId + ",\"type\":\"payment\",\"action\":\"payment.updated\",\"data\":{\"id\":\"" + paymentId + "\"}}"));
+  }
+
+  @Test void lasFechasAcordadasSeGuardanSinCorrimientoDeZonaHoraria() {
+    assertEquals("2026-11-10 09:00:00.000000", jdbc.queryForObject("select date_format(desde, '%Y-%m-%d %H:%i:%s.%f') from prestamos_pagables", String.class));
+  }
+
+  @Test void incidenciasYComisionSeGuardanEnLasColumnasNuevas() throws Exception {
+    consumer.handle("evidencias.incidencia-reportada.v1", json.writeValueAsBytes(Map.of("event_id", UUID.randomUUID(), "event_type", "IncidenciaReportada", "event_version", 1,
+        "aggregate_version", 1, "aggregate_id", UUID.randomUUID(), "occurred_at", "2026-11-11T10:00:00Z", "correlation_id", "it", "payload", Map.of("prestamo_id", prestamo, "incidencia_id", UUID.randomUUID()))));
+    assertEquals(1, proyecciones.findByPrestamoId(prestamo).orElseThrow().toDomain().incidenciasPendientes());
+    String tx = crearPago("pago-it-comision");
+    mercadoPago.stubFor(com.github.tomakehurst.wiremock.client.WireMock.get(urlPathEqualTo("/v1/payments/777"))
+        .willReturn(okJson("{\"id\":777,\"status\":\"approved\",\"external_reference\":\"" + tx + "\",\"transaction_amount\":60.00,\"currency_id\":\"PEN\"}")));
+    webhook("9077", "777", sign("777", "req-9077", "1730473200")).andExpect(status().isCreated());
+    payments.registrarPrestamoActivado(prestamo, "it");
+    TransaccionEconomica liberacion = transacciones.findByPrestamo(prestamo).stream().map(e -> e.toDomain()).filter(t -> t.tipo() == TipoTransaccion.LIBERACION_TARIFA).findFirst().orElseThrow();
+    assertEquals(new BigDecimal("10.80"), liberacion.comisionLendup(), "18 % de 60.00, el valor por defecto");
+    mvc.perform(get("/api/v1/prestamos/{id}/desglose-pago", prestamo).header("Authorization", "Bearer prestatario")).andExpect(status().isOk())
+        .andExpect(jsonPath("$.comision_lendup").value(10.80)).andExpect(jsonPath("$.total_prestatario").value(110.00));
+    mvc.perform(get("/api/v1/prestamos/{id}/desglose-pago", prestamo).header("Authorization", "Bearer otro")).andExpect(status().isForbidden());
+    mvc.perform(get("/api/v1/prestamos/{id}/desglose-pago", prestamo)).andExpect(status().isUnauthorized());
   }
 
   @Test void pagoIdempotentePorClaveConAuditoriaYSinEventosHastaConfirmar() throws Exception {

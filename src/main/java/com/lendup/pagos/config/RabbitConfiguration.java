@@ -7,7 +7,7 @@ import java.util.stream.Stream; import org.springframework.amqp.core.Binding; im
   @Bean Queue paymentsEventsQueue(){return QueueBuilder.durable(QUEUE).deadLetterExchange(DLX).deadLetterRoutingKey(DLQ).build();} @Bean Queue paymentsEventsDlq(){return QueueBuilder.durable(DLQ).build();}
   @Bean Binding dlqBinding(Queue paymentsEventsDlq,DirectExchange deadLetterExchange){return BindingBuilder.bind(paymentsEventsDlq).to(deadLetterExchange).with(DLQ);}
   @Bean Declarables consumedEventBindings(Queue paymentsEventsQueue,TopicExchange domainExchange,EventRoutingProperties routes){
-    return new Declarables(Stream.of(RESERVATION_CONFIRMED,RESERVATION_CANCELLED,routes.loanCreatedRoutingKey(),routes.loanActivatedRoutingKey(),routes.loanFinishedRoutingKey(),routes.extensionAcceptedRoutingKey(),routes.incidentResolvedRoutingKey())
+    return new Declarables(Stream.of(RESERVATION_CONFIRMED,RESERVATION_CANCELLED,routes.loanCreatedRoutingKey(),routes.loanActivatedRoutingKey(),routes.loanReturnedRoutingKey(),routes.loanFinishedRoutingKey(),routes.extensionAcceptedRoutingKey(),routes.incidentReportedRoutingKey(),routes.incidentResolvedRoutingKey())
         .distinct().map(key->(Declarable)BindingBuilder.bind(paymentsEventsQueue).to(domainExchange).with(key)).toList());
   }
 }

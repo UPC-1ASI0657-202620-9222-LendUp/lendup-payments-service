@@ -128,19 +128,42 @@ public class GuaranteeApplicationService implements GuaranteeUseCases {
   public List<UUID> registrarPrestamoFinalizado(UUID prestamoId, String correlationId) {
     PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(prestamoId).orElseThrow(() -> new NotFoundException("Préstamo no proyectado"));
     EstadoPrestamoPagable previous = prestamo.estado();
-    prestamo.finalizar(clock.instant());
+    Instant now = clock.instant();
+    prestamo.finalizar(now);
+    if (prestamo.cambioFechaPendienteId() != null) prestamo.liquidarExtension(now); // ya no corresponde cobrarla
     repository.saveProyeccion(prestamo);
     audit.record("PRESTAMO_PAGABLE", prestamo.reservaId(), "FINALIZAR", previous.name(), prestamo.estado().name(), null, correlationId);
     Optional<Garantia> found = repository.findGarantiaByPrestamo(prestamoId);
     if (found.isEmpty()) return List.of();
     Garantia garantia = repository.lockGarantia(found.get().id()).orElseThrow();
     if (!garantia.constituida()) return List.of();
+    if (prestamo.tieneIncidenciasPendientes()) {
+      log.info("El préstamo {} finalizó con incidencias pendientes; la garantía se devuelve al resolverlas", prestamoId);
+      return List.of();
+    }
     return devolverSaldo(garantia, "finalizacion", null, correlationId);
   }
 
   @Override @Transactional
+  public void registrarIncidenciaReportada(UUID prestamoId, UUID incidenciaId, String correlationId) {
+    PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(prestamoId).orElseThrow(() -> new NotFoundException("Préstamo no proyectado"));
+    Instant now = clock.instant();
+    prestamo.registrarIncidencia(now);
+    repository.saveProyeccion(prestamo);
+    Optional<Garantia> found = repository.findGarantiaByPrestamo(prestamoId);
+    if (found.isEmpty()) return;
+    Garantia garantia = repository.lockGarantia(found.get().id()).orElseThrow();
+    String previous = garantia.estado().name();
+    if (!garantia.retenerPorIncidencia(now)) return;
+    repository.saveGarantia(garantia);
+    audit.record("GARANTIA", garantia.id(), "RETENER_POR_INCIDENCIA", previous, garantia.estado().name(), null, correlationId);
+  }
+
+  @Override @Transactional
   public List<UUID> registrarIncidenciaResuelta(IncidenciaResueltaCommand command, String correlationId) {
-    PrestamoPagable prestamo = repository.findProyeccionByPrestamo(command.prestamoId()).orElseThrow(() -> new NotFoundException("Préstamo no proyectado"));
+    PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(command.prestamoId()).orElseThrow(() -> new NotFoundException("Préstamo no proyectado"));
+    prestamo.resolverIncidencia(clock.instant());
+    repository.saveProyeccion(prestamo);
     Optional<Garantia> found = repository.findGarantiaByPrestamo(command.prestamoId());
     if (found.isEmpty() || !found.get().constituida()) {
       log.info("Incidencia {} resuelta sin garantía constituida en el préstamo {}", command.incidenciaId(), command.prestamoId());
@@ -162,6 +185,8 @@ public class GuaranteeApplicationService implements GuaranteeUseCases {
       audit.record("GARANTIA", garantia.id(), "RETENER_" + command.decision().name(), previous, garantia.estado().name(), null, correlationId);
       events.garantiaRetenida(garantia, retencion, prestamo, command.decision(), correlationId);
     }
+    if (prestamo.tieneIncidenciasPendientes()) return List.of(); // El saldo espera a la última resolución (RF41).
+    if (garantia.liberarRetencion(clock.instant())) repository.saveGarantia(garantia);
     if (resultado.devolucion().signum() <= 0) return List.of();
     return devolverSaldo(garantia, "incidencia", command.incidenciaId(), correlationId);
   }

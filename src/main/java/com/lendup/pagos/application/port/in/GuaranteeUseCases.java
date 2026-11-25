@@ -9,5 +9,6 @@ public interface GuaranteeUseCases {
   TransaccionView constituirGarantia(UUID actor, ConstituirGarantiaCommand command, String correlationId);
   /** Devuelven los reembolsos PENDIENTE creados, que se ejecutan después del commit. */
   List<UUID> registrarPrestamoFinalizado(UUID prestamoId, String correlationId);
+  void registrarIncidenciaReportada(UUID prestamoId, UUID incidenciaId, String correlationId);
   List<UUID> registrarIncidenciaResuelta(IncidenciaResueltaCommand command, String correlationId);
 }
