@@ -53,6 +53,20 @@ class OutboxRelayTest {
     assertTrue(event.getLastError().contains("pagos.pago-confirmado.v1"));
   }
 
+  @Test void sinSuscriptoresElEventoNuncaSeAgota() {
+    doAnswer(inv -> {
+      CorrelationData cd = inv.getArgument(4);
+      cd.setReturned(new ReturnedMessage(new Message(new byte[0], new MessageProperties()), 312, "NO_ROUTE", "lendup.domain.events", "pagos.pago-confirmado.v1"));
+      cd.getFuture().complete(new CorrelationData.Confirm(true, null));
+      return null;
+    }).when(rabbit).convertAndSend(anyString(), anyString(), any(byte[].class), any(MessagePostProcessor.class), any(CorrelationData.class));
+    for (int i = 0; i < 30; i++) relay().relay();
+    assertEquals(9, event.getAttempts(), "queda por debajo del máximo: sale en cuanto alguien se suscriba");
+    assertFalse(event.getNextAttemptAt().isAfter(NOW.plusSeconds(300)));
+  }
+
+  @Test void elReembolsoRechazadoTieneSuRoutingKey() { assertEquals("pagos.reembolso-rechazado.v1", OutboxRelay.routingKey("ReembolsoRechazado")); }
+
   @Test void marcaPublicadoCuandoElBrokerConfirmaYEnruta() {
     doAnswer(inv -> { ((CorrelationData) inv.getArgument(4)).getFuture().complete(new CorrelationData.Confirm(true, null)); return null; })
         .when(rabbit).convertAndSend(anyString(), anyString(), any(byte[].class), any(MessagePostProcessor.class), any(CorrelationData.class));
