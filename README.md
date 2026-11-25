@@ -13,18 +13,54 @@ Detalles: [arquitectura](docs/architecture.md), [API](docs/api-contract.md), [ev
 
 ## Inicio local
 
-Requisitos: JDK 21, Docker con Compose v2, credencial Firebase de desarrollo y credenciales de prueba de Mercado Pago.
+Requisitos: JDK 21, Docker con Compose v2 y la credencial Firebase de desarrollo (proyecto `lendup-desarrollo`). Las credenciales de Mercado Pago son opcionales: sin ellas se usa el modo simulado.
 
 ```powershell
 Copy-Item .env.example .env
 New-Item -ItemType Directory -Force .secrets
 # Colocar una credencial de desarrollo en .secrets/firebase-service-account.json; nunca versionarla.
-# Completar MERCADOPAGO_ACCESS_TOKEN y MERCADOPAGO_WEBHOOK_SECRET en .env.
+# Por defecto MERCADOPAGO_MODE=simulado. Para el sandbox real: MERCADOPAGO_MODE=real + MERCADOPAGO_ACCESS_TOKEN y MERCADOPAGO_WEBHOOK_SECRET.
 .\mvnw.cmd clean verify
 docker compose up --build
 ```
 
-API: `http://localhost:8082/api/v1`; readiness: `http://localhost:8082/actuator/health/readiness`. MySQL queda en `127.0.0.1:3308`, RabbitMQ en `127.0.0.1:5673` y su consola en `http://localhost:15673` (puertos distintos a Reservas para poder levantar ambos). Para integrar con Reservas en local, apuntar `RABBITMQ_HOST`/`RABBITMQ_PORT` de ambos servicios al mismo broker.
+API: `http://localhost:8082/api/v1`; readiness: `http://localhost:8082/actuator/health/readiness`. MySQL queda en `127.0.0.1:3311`, RabbitMQ en `127.0.0.1:5675` y su consola en `http://localhost:15675`. Son puertos distintos a los de Reservas, Catálogo, Identidad y Reputación; se cambian con `MYSQL_HOST_PORT`, `RABBITMQ_HOST_PORT` y `RABBITMQ_MANAGEMENT_HOST_PORT`. Catálogo y Reputación también usan el 8082: si los levantas juntos, cambia `SERVER_PORT`.
+
+### Probar sin llaves de Mercado Pago (modo simulado)
+
+Con `MERCADOPAGO_MODE=simulado`, `POST /pagos` y `POST /garantias` devuelven un `checkout_url` que apunta a `http://localhost:8082/api/v1/simulador/mercado-pago/checkout/{transaccion_id}`, en vez de a Mercado Pago:
+
+- **En el navegador**, esa página muestra los botones *Aprobar pago* y *Rechazar pago*, y luego redirige a la URL de retorno del frontend.
+- **Desde Postman**, `POST {{checkout_url}}?resultado=aprobado` hace lo mismo y responde en JSON (`payment_id`, `estado_webhook`, `estado_transaccion`).
+
+El pago simulado se procesa por el mismo camino que el webhook real:
+
+1. Registro en `notificaciones_proveedor`.
+2. Consulta del pago.
+3. Cambio de estado.
+4. Auditoría y outbox.
+5. Evento `pagos.*.v1`.
+
+Los reembolsos también se simulan. El simulador solo existe en modo simulado; con `MERCADOPAGO_MODE=real` (valor por defecto de la aplicación) esa ruta no existe. Nunca usar el modo simulado en producción.
+
+### Datos previos que necesita un pago
+
+`POST /pagos` y `POST /garantias` responden `404 Préstamo no encontrado` hasta que Pagos recibe dos eventos: `reservas.confirmada.v1` (Reservas) y `prestamos.creado.v1`. Ningún servicio publica todavía el segundo; es un contrato pendiente de Préstamos. Mientras tanto, la carpeta *1. Eventos simulados* de la colección Postman publica ambos en RabbitMQ.
+
+El `prestatario_usuario_id` del evento debe ser tu `usuario.id` en Identidad (la carpeta *0b. Preparación* lo obtiene con `GET /estudiantes/me`). Si no, la respuesta es 403.
+
+### Broker compartido (integración con el equipo)
+
+Cada `compose.yaml` levanta su propio RabbitMQ para probar el servicio solo, pero dos brokers distintos nunca intercambian eventos. Para integrar, todos los servicios deben apuntar al mismo broker. En local puede ser el de Reservas (`localhost:5672`). En `.env`:
+
+```
+RABBITMQ_HOST=host.docker.internal
+RABBITMQ_PORT=5672
+RABBITMQ_USERNAME=<usuario de ese broker>
+RABBITMQ_PASSWORD=<contraseña de ese broker>
+```
+
+Las peticiones de *Eventos simulados* responden `routed=true` solo si alguna cola recibió el mensaje. Si sale `routed=false`, el servicio que debía escucharlo no está conectado a ese broker.
 
 Swagger está deshabilitado por defecto; para desarrollo local: `SPRINGDOC_ENABLED=true` (requiere Firebase salvo `SWAGGER_PUBLIC=true`, que no debe usarse en producción). El contrato también está en [`contracts/openapi/payments-v1.yaml`](contracts/openapi/payments-v1.yaml).
 

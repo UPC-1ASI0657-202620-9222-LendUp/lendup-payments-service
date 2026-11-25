@@ -17,13 +17,15 @@ import org.springframework.web.cors.CorsConfiguration;
 public class SecurityConfiguration {
   private static final String[] SWAGGER_PATHS = {"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**"};
   public static final String WEBHOOK_PATH = "/api/v1/webhooks/mercado-pago";
+  public static final String SIMULATOR_PATH = "/api/v1/simulador/mercado-pago/**";
 
   @Bean
   SecurityFilterChain security(
       HttpSecurity http,
       TokenVerifier verifier,
       @Value("${lendup.security.cors-origins:}") String origins,
-      @Value("${lendup.security.swagger-public:false}") boolean swaggerPublic) throws Exception {
+      @Value("${lendup.security.swagger-public:false}") boolean swaggerPublic,
+      @Value("${lendup.integrations.mercado-pago.mode:real}") String mercadoPagoMode) throws Exception {
     return http
         .httpBasic(AbstractHttpConfigurer::disable)
         .formLogin(AbstractHttpConfigurer::disable)
@@ -43,6 +45,8 @@ public class SecurityConfiguration {
               "/actuator/health/readiness").permitAll();
           // Mercado Pago no envía tokens de Firebase: la autenticidad se valida con la firma x-signature.
           authorize.requestMatchers(HttpMethod.POST, WEBHOOK_PATH).permitAll();
+          // Simulador de Checkout Pro: solo existe con MERCADOPAGO_MODE=simulado (desarrollo); en real no se abre.
+          if ("simulado".equals(mercadoPagoMode)) authorize.requestMatchers(SIMULATOR_PATH).permitAll();
           if (swaggerPublic) authorize.requestMatchers(SWAGGER_PATHS).permitAll();
           else authorize.requestMatchers(SWAGGER_PATHS).authenticated();
           authorize.requestMatchers("/actuator/**").denyAll();
