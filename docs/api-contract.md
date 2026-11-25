@@ -8,6 +8,7 @@ Base externa: `/api/v1`. Todos los endpoints, salvo el webhook, requieren `Autho
 | POST | `/pagos` | 201, transacción `PENDIENTE` + `checkout_url`. Solo el prestatario |
 | POST | `/garantias` | 201, cobro `CONSTITUCION_GARANTIA` `PENDIENTE` + `garantia` `PENDIENTE` + `checkout_url`. Solo el prestatario |
 | GET | `/prestamos/{id}/transacciones` | 200, solo participantes del préstamo |
+| GET | `/prestamos/{id}/desglose-pago` | 200, `tarifa`, `comision_lendup`, `comision_proveedor` (ausente hasta que se confirma el pago), `garantia`, `total_prestatario` y `neto_prestamista`. Solo participantes; no genera transacciones (RF37) |
 | POST | `/webhooks/mercado-pago` | 201 `{proveedor_evento_id, estado}`; público, autenticado por firma |
 
 Errores: `{ "status": 409, "error": "CONFLICTO_NEGOCIO", "message": "...", "timestamp": "...Z" }`. Códigos: 400 `SOLICITUD_INVALIDA`, 401 `AUTENTICACION_REQUERIDA`/`TOKEN_INVALIDO`/`FIRMA_INVALIDA`, 403 `NO_AUTORIZADO`/`EMAIL_NOT_VERIFIED`, 404 `NO_ENCONTRADO`, 409 `CONFLICTO_NEGOCIO`/`CONFLICTO_DATOS`, 503 `DEPENDENCIA_NO_DISPONIBLE`.
@@ -30,6 +31,8 @@ POST /garantias
 - Idempotencia: la misma `clave_idempotencia` devuelve la misma transacción (y su `checkout_url`); usada en otro préstamo o tipo → 409. Si ya hay un cobro `PENDIENTE` del mismo tipo, se devuelve ese en vez de crear otro.
 - `POST /garantias` → 409 `El préstamo no requiere garantía` o `Garantía ya registrada` (si ya no está `PENDIENTE`). Si el intento anterior fue rechazado, se crea un nuevo cobro para la misma garantía.
 - Si Mercado Pago no responde al crear la preferencia: 503 y la transacción queda `PENDIENTE` sin URL; reintentar con la misma clave.
+- Un pago de extensión que ya no corresponde (objeto devuelto o extensión ya pagada) se reembolsa automáticamente.
+- La transacción `LIBERACION_TARIFA` incluye `comision_lendup` y `comision_proveedor`.
 - El rol de acceso no basta: la participación se valida contra la proyección `prestamos_pagables`.
 
 ## Cambios respecto al monolito (para el frontend)

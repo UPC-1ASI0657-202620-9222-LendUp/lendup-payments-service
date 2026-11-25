@@ -7,7 +7,7 @@
   "required": ["event_id", "event_type", "event_version", "aggregate_version", "aggregate_id", "occurred_at", "correlation_id", "payload"],
   "properties": {
     "event_id": { "type": "string", "format": "uuid" },
-    "event_type": { "enum": ["PagoConfirmado", "PagoRechazado", "GarantiaConstituida", "TarifaLiberada", "GarantiaDevuelta", "GarantiaRetenida", "ReembolsoProcesado"] },
+    "event_type": { "enum": ["PagoConfirmado", "PagoRechazado", "GarantiaConstituida", "TarifaLiberada", "GarantiaDevuelta", "GarantiaRetenida", "ReembolsoProcesado", "ReembolsoRechazado"] },
     "event_version": { "const": 1 },
     "aggregate_version": { "type": "integer", "minimum": 1, "description": "Marca de tiempo en milisegundos del cambio; creciente por agregado." },
     "aggregate_id": { "type": "string", "format": "uuid", "description": "transaccion_id para eventos de transacción; garantia_id para eventos Garantia*." },
@@ -16,7 +16,7 @@
     "payload": { "type": "object" }
   },
   "allOf": [
-    { "if": { "properties": { "event_type": { "enum": ["PagoConfirmado", "PagoRechazado", "ReembolsoProcesado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/transaccion" } } } },
+    { "if": { "properties": { "event_type": { "enum": ["PagoConfirmado", "PagoRechazado", "ReembolsoProcesado", "ReembolsoRechazado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/transaccion" } } } },
     { "if": { "properties": { "event_type": { "const": "TarifaLiberada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/tarifaLiberada" } } } },
     { "if": { "properties": { "event_type": { "enum": ["GarantiaConstituida", "GarantiaDevuelta", "GarantiaRetenida"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/garantia" } } } }
   ],
@@ -47,17 +47,18 @@
         "comision_proveedor": { "type": "number", "minimum": 0 },
         "referencia_proveedor": { "type": "string" },
         "confirmada_en": { "type": "string", "format": "date-time" },
-        "motivo": { "type": "string", "description": "Solo PagoRechazado: status_detail de Mercado Pago." },
+        "motivo": { "type": "string", "description": "Solo PagoRechazado y ReembolsoRechazado: detalle de Mercado Pago." },
         "referencia_reembolso": { "type": "string", "description": "Solo ReembolsoProcesado: id del reembolso en Mercado Pago." }
       }
     },
     "tarifaLiberada": {
       "allOf": [{ "$ref": "#/$defs/transaccion" }],
       "type": "object",
-      "required": ["transaccion_pago_id", "comision_proveedor", "monto_neto_prestamista"],
+      "required": ["transaccion_pago_id", "comision_proveedor", "comision_lendup", "monto_neto_prestamista"],
       "properties": {
         "transaccion_pago_id": { "type": "string", "format": "uuid" },
-        "monto_neto_prestamista": { "type": "number" }
+        "comision_lendup": { "type": "number", "minimum": 0 },
+        "monto_neto_prestamista": { "type": "number", "minimum": 0, "description": "monto - comision_proveedor - comision_lendup" }
       }
     },
     "garantia": {

@@ -50,6 +50,16 @@ paths:
         '200': { description: Transacciones ordenadas por solicitada_en, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Transaccion' } } } } }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /prestamos/{id}/desglose-pago:
+    get:
+      operationId: desglosarPago
+      tags: [Transacciones]
+      description: Costo concepto por concepto antes de pagar (RF37). Solo participantes; no genera transacciones.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Desglose, content: { application/json: { schema: { $ref: '#/components/schemas/DesglosePago' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /webhooks/mercado-pago:
     post:
       operationId: recibirWebhookMercadoPago
@@ -74,6 +84,18 @@ components:
       description: Error con el formato del monolito
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
   schemas:
+    DesglosePago:
+      type: object
+      required: [prestamo_id, moneda, tarifa, comision_lendup, garantia, total_prestatario, neto_prestamista]
+      properties:
+        prestamo_id: { type: string, format: uuid }
+        moneda: { type: string, example: PEN }
+        tarifa: { type: number, example: 60.00 }
+        comision_lendup: { type: number, example: 10.80 }
+        comision_proveedor: { type: number, description: Ausente hasta que Mercado Pago confirma el pago }
+        garantia: { type: number, example: 50.00 }
+        total_prestatario: { type: number, example: 110.00 }
+        neto_prestamista: { type: number, example: 49.20 }
     Error:
       type: object
       required: [status, error, message]
@@ -126,6 +148,7 @@ components:
         monto: { type: number }
         moneda: { type: string }
         comision_proveedor: { type: number }
+        comision_lendup: { type: number, description: Solo LIBERACION_TARIFA }
         medio_pago_seleccionado: { type: string }
         referencia_proveedor: { type: string }
         clave_idempotencia: { type: string }

@@ -3,11 +3,18 @@
 ## Unreleased
 
 ### Corregido
+- Fechas acordadas corridas 5 horas en la base cuando la JVM no está en UTC (ejecución fuera de Docker).
+- Garantía devuelta con otra incidencia pendiente: ahora queda `RETENIDA_POR_INCIDENCIA` hasta resolver la última (RF41).
+- Un pago de extensión que ya no corresponde se daba por bueno; ahora se reembolsa y su cobro se cancela al registrarse la devolución.
+- Un evento sin suscriptores se agotaba a los 10 intentos; ahora espera hasta que alguien se suscriba.
 - Eventos perdidos: el Outbox publicaba sin `mandatory` y marcaba como publicado un evento que ninguna cola recibía (el broker "se veía vacío"). Ahora queda pendiente y se reintenta con espera creciente (`next_attempt_at`, migración V2). Un tipo de evento desconocido ya no se publica con una routing key inventada.
 - Colección Postman: los eventos simulados ahora respetan las variables de entorno (`pm.variables`); la petición "Sin token (401)" ya no envía el token.
 - Colección Postman: "Pagar tarifa" usaba una clave de idempotencia fija y, desde la segunda corrida, Pagos respondía 409 "La clave de pago ya fue utilizada". Ahora la clave depende del préstamo (`pago-tarifa-{{prestamo_id}}`).
 
 ### Agregado
+- Comisión de LendUp (`PoliticaDeComision`, `LENDUP_COMMISSION_PERCENT`, 18 por defecto) registrada en la liberación y `GET /prestamos/{id}/desglose-pago` (RF37). Migración V3.
+- `ReembolsoRechazado` (`pagos.reembolso-rechazado.v1`) para avisar al estudiante (US41).
+- Consumo de `prestamos.devolucion-registrada.v1` y `evidencias.incidencia-reportada.v1`.
 - Modo `MERCADOPAGO_MODE=simulado` con simulador de Checkout Pro, para que el equipo pruebe pagos, webhook, reembolsos y eventos sin credenciales de Mercado Pago.
 - Postman: login de Firebase, `usuario.id` desde Identidad, cola espía para ver los eventos en el broker y carpeta del simulador.
 - `.env.example` alineado al equipo: Firebase `lendup-desarrollo`, Identidad en `:8081`, frontend en `:3000`. Puertos locales que no chocan con otros servicios, y opción de broker compartido.
