@@ -4,7 +4,13 @@
 
 Pagos y Garantías posee `garantias`, `transacciones_economicas`, la proyección `prestamos_pagables`, `notificaciones_proveedor`, outbox (`outbox_events`), inbox (`processed_events`) y auditoría (`registro_auditoria`) en su propia base `lendup_pagos`. Préstamos, reservas, usuarios, cambios de fecha e incidencias son referencias externas por UUID: no hay claves foráneas hacia otros servicios ni lecturas de otros esquemas. Es el único servicio que conoce a Mercado Pago (CD-09).
 
+![Base de datos](diagrams/base-de-datos.png)
+
 ## Componentes (Fig. 18)
+
+![Componentes](diagrams/componentes.png)
+
+La figura agrupa los controladores, los servicios de aplicación y el dominio; la tabla muestra cada clase.
 
 | Componente del diagrama | Clase |
 |---|---|
@@ -22,7 +28,7 @@ Pagos y Garantías posee `garantias`, `transacciones_economicas`, la proyección
 | Transaction Repository | puerto `TransactionRepository`, adaptador `JpaTransactionRepositoryAdapter` |
 | Outbox Event Publisher | `OutboxJpaAdapter` + `infrastructure/messaging/OutboxRelay` |
 
-Componentes adicionales que no aparecen en la figura: `CheckoutCoordinator` (crea la preferencia fuera de la transacción de BD), `EconomicEventRecorder` (arma los eventos del outbox), `PendingReconciliationScheduler` (respaldo del webhook, CD-09) y la proyección `prestamos_pagables`, alimentada también por `reservas.confirmada.v1`.
+Componentes adicionales que no aparecen en la figura: `PoliticaDeComision` (comisión de LendUp, dentro de Garantía y reglas de cobro), `CheckoutCoordinator` (crea la preferencia fuera de la transacción de BD), `EconomicEventRecorder` (arma los eventos del outbox), `PendingReconciliationScheduler` (respaldo del webhook, CD-09) y la proyección `prestamos_pagables`, alimentada también por `reservas.confirmada.v1`.
 
 Capas: `domain` (agregados, enums de la Fig. 11, `PoliticaDeCosto` y `PoliticaDeComision` como Strategy, servicio de dominio), `application` (casos de uso y puertos), `infrastructure` (JPA/MySQL, RabbitMQ, SDK de Mercado Pago, REST a Identidad, scheduler) e `interfaces/rest` (DTOs y errores).
 
