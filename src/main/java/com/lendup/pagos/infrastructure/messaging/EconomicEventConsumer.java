@@ -74,7 +74,14 @@ public class EconomicEventConsumer {
           decimal(p, "tarifa_diaria_acordada"), optionalDecimal(p, "garantia_monetaria_acordada"), text(p, "moneda_acordada")), correlationId);
       return List.of();
     }
-    if (RabbitConfiguration.RESERVATION_CANCELLED.equals(routingKey)) return payments.registrarReservaCancelada(uuid(p, "reserva_id"), correlationId);
+    if (RabbitConfiguration.RESERVATION_CANCELLED.equals(routingKey)) {
+      UUID reserva = uuid(p, "reserva_id");
+      if (p.get("incidencias_resueltas") instanceof List<?> resueltas) {
+        return payments.registrarReservaCanceladaConCierre(reserva,
+            resueltas.stream().map(id -> UUID.fromString(id.toString())).toList(), correlationId);
+      }
+      return payments.registrarReservaCancelada(reserva, correlationId);
+    }
     if (routes.loanCreatedRoutingKey().equals(routingKey)) { payments.vincularPrestamo(uuid(p, "reserva_id"), uuid(p, "prestamo_id"), correlationId); return List.of(); }
     if (routes.loanActivatedRoutingKey().equals(routingKey)) { payments.registrarPrestamoActivado(uuid(p, "prestamo_id"), correlationId); return List.of(); }
     if (routes.extensionAcceptedRoutingKey().equals(routingKey)) {
