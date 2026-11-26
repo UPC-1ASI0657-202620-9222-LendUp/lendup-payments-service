@@ -60,7 +60,7 @@ class EconomicEventConsumerTest {
     verify(payments).registrarPrestamoActivado(prestamo, "corr");
     verify(payments).registrarExtensionAceptada(eq(prestamo), eq(cambio), argThat(c -> c.compareTo(new BigDecimal("20")) == 0), eq("corr"));
     verify(guarantees).registrarPrestamoFinalizado(prestamo, "corr");
-    verify(guarantees).registrarIncidenciaResuelta(argThat(c -> c.decision() == DecisionGarantia.AFECTACION_PARCIAL && c.incidenciaId().equals(incidencia)), eq("corr"));
+    verify(guarantees).registrarIncidenciaResuelta(argThat(c -> c.decision() == DecisionGarantia.AFECTACION_PARCIAL && c.incidenciaId().equals(incidencia)), eq("PEN"), eq("corr"));
   }
 
   @Test void devolucionRegistradaEIncidenciaReportadaLleganASusCasosDeUso() {

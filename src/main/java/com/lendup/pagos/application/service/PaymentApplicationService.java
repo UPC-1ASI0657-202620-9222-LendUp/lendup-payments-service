@@ -4,6 +4,7 @@ import com.lendup.pagos.application.exception.*;
 import com.lendup.pagos.application.port.in.PaymentUseCases;
 import com.lendup.pagos.application.port.in.PaymentViews.*;
 import com.lendup.pagos.application.port.out.AuditPort;
+import com.lendup.pagos.application.port.out.ExtensionPaymentWindows;
 import com.lendup.pagos.application.port.out.PaymentGatewayPort;
 import com.lendup.pagos.application.port.out.PaymentGatewayPort.ProviderPayment;
 import com.lendup.pagos.application.port.out.PaymentGatewayPort.RefundResult;
@@ -17,6 +18,9 @@ import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -26,6 +30,10 @@ import org.springframework.transaction.support.TransactionOperations;
  */
 @Service
 public class PaymentApplicationService implements PaymentUseCases {
+  @Value("${lendup.extensions.coordinated:false}")
+  private boolean coordinatedExtensions;
+  @Autowired
+  private ExtensionPaymentWindows windows;
   private static final Logger log = LoggerFactory.getLogger(PaymentApplicationService.class);
   private static final Set<TipoTransaccion> COBROS = EnumSet.of(TipoTransaccion.PAGO_TARIFA, TipoTransaccion.PAGO_EXTENSION, TipoTransaccion.CONSTITUCION_GARANTIA);
   private static final Set<TipoTransaccion> REEMBOLSOS = EnumSet.of(TipoTransaccion.DEVOLUCION_GARANTIA, TipoTransaccion.REEMBOLSO_TARIFA);
@@ -59,6 +67,12 @@ public class PaymentApplicationService implements PaymentUseCases {
     TipoTransaccion tipo = tipoDePago(command.tipo());
     if (!MedioPago.MERCADO_PAGO.equals(command.medioPagoSeleccionado())) throw new IllegalArgumentException("Medio de pago inválido");
     TransaccionEconomica registrada = tx.execute(status -> registrarPago(actor, tipo, command, correlationId));
+    if (coordinatedExtensions && tipo == TipoTransaccion.PAGO_EXTENSION && registrada.estado() == EstadoTransaccion.PENDIENTE) {
+      exigirRetencion(registrada.prestamoId(), registrada.cambioFechaPrestamoId());
+      var preparada = checkout.asegurarCheckout(registrada);
+      exigirRetencion(registrada.prestamoId(), registrada.cambioFechaPrestamoId());
+      return TransaccionView.from(preparada);
+    }
     return TransaccionView.from(checkout.asegurarCheckout(registrada));
   }
 
@@ -67,6 +81,9 @@ public class PaymentApplicationService implements PaymentUseCases {
     if (repeated.isPresent()) {
       TransaccionEconomica previous = repeated.get();
       if (!previous.prestamoId().equals(command.prestamoId()) || previous.tipo() != tipo) throw new BusinessConflictException("La clave de pago ya fue utilizada");
+      if (tipo == TipoTransaccion.PAGO_EXTENSION && !Objects.equals(previous.cambioFechaPrestamoId(), command.cambioFechaPrestamoId())) {
+        throw new BusinessConflictException("La clave ya pertenece a otra extensión");
+      }
       GuaranteeApplicationService.exigirPrestatario(proyeccion(command.prestamoId()), actor);
       return previous;
     }
@@ -85,6 +102,7 @@ public class PaymentApplicationService implements PaymentUseCases {
       if (command.cambioFechaPrestamoId() == null || !command.cambioFechaPrestamoId().equals(prestamo.cambioFechaPendienteId())) throw new IllegalArgumentException("cambio_fecha_prestamo_id no corresponde a la extensión aceptada");
       if (monto.compareTo(prestamo.costoExtensionPendiente()) != 0) throw new IllegalArgumentException("El importe no coincide con el costo de la extensión");
       cambioFecha = command.cambioFechaPrestamoId();
+      if (coordinatedExtensions) exigirRetencion(prestamo.prestamoId(), cambioFecha);
     }
     UUID cambio = cambioFecha;
     Optional<TransaccionEconomica> enCurso = existentes.stream()
@@ -137,6 +155,15 @@ public class PaymentApplicationService implements PaymentUseCases {
       audit.record("TRANSACCION", t.id(), "RESULTADO_INCONSISTENTE", t.estado().name(), t.estado().name(), null, correlationId);
       return List.of();
     }
+    if (coordinatedExtensions && t.tipo() == TipoTransaccion.PAGO_EXTENSION
+        && payment.resultado() == ResultadoProveedor.APROBADO) {
+      if (payment.paymentId() == null || payment.paymentId().isBlank()
+          || payment.monto() == null || payment.moneda() == null) return List.of();
+      if (t.estado() == EstadoTransaccion.CONFIRMADA && !payment.paymentId().equals(t.referenciaProveedor())) {
+        return crearReembolsoTarifa(t, payment.paymentId(), "reembolso:" + t.id() + ":" + payment.paymentId(), correlationId)
+            .map(List::of).orElse(List.of());
+      }
+    }
     Instant now = clock.instant();
     String previous = t.estado().name();
     boolean changed = t.aplicarResultadoCobro(payment.resultado(), payment.paymentId(), payment.comision(), now);
@@ -152,7 +179,8 @@ public class PaymentApplicationService implements PaymentUseCases {
     boolean duplicado = t.tipo() == TipoTransaccion.PAGO_TARIFA && repository.findByPrestamo(t.prestamoId()).stream()
         .anyMatch(o -> !o.id().equals(t.id()) && o.tipo() == TipoTransaccion.PAGO_TARIFA && o.estado() == EstadoTransaccion.CONFIRMADA);
     boolean extensionSinEfecto = t.tipo() == TipoTransaccion.PAGO_EXTENSION
-        && (prestamo == null || !Objects.equals(t.cambioFechaPrestamoId(), prestamo.cambioFechaPendienteId()));
+        && (prestamo == null || !Objects.equals(t.cambioFechaPrestamoId(), prestamo.cambioFechaPendienteId())
+            || (coordinatedExtensions && !windows.active(t.prestamoId(), t.cambioFechaPrestamoId(), now)));
     if (duplicado || extensionSinEfecto || prestamo == null || prestamo.estado() == EstadoPrestamoPagable.CANCELADO) {
       // Pago duplicado, de una reserva cancelada o de una extensión que ya no corresponde: se devuelve (RNF13, US41).
       return crearReembolsoTarifa(t, correlationId).map(List::of).orElse(List.of());
@@ -161,7 +189,7 @@ public class PaymentApplicationService implements PaymentUseCases {
     if (t.tipo() == TipoTransaccion.PAGO_EXTENSION) {
       prestamo.liquidarExtension(now);
       repository.saveProyeccion(prestamo);
-      if (prestamo.estado() == EstadoPrestamoPagable.ACTIVO) liberarTarifa(t, prestamo, correlationId);
+      if (!coordinatedExtensions && prestamo.estado() == EstadoPrestamoPagable.ACTIVO) liberarTarifa(t, prestamo, correlationId);
     }
     return List.of();
   }
@@ -263,10 +291,48 @@ public class PaymentApplicationService implements PaymentUseCases {
   }
 
   @Override @Transactional
+  public void registrarExtensionConRetencion(UUID prestamoId, UUID cambio, BigDecimal costo, Instant expiraEn, String correlationId) {
+    repository.lockProyeccionByPrestamo(prestamoId).orElseThrow();
+    if (windows.open(prestamoId, cambio, expiraEn) && clock.instant().isBefore(expiraEn)) {
+      registrarExtensionAceptada(prestamoId, cambio, costo, correlationId);
+    }
+  }
+
+  @Override @Transactional(isolation = Isolation.READ_COMMITTED)
+  public List<UUID> registrarRetencionRechazada(UUID prestamoId, UUID cambio, String correlationId) {
+    PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(prestamoId).orElseThrow();
+    windows.reject(prestamoId, cambio);
+    if (cambio.equals(prestamo.cambioFechaPendienteId())) {
+      prestamo.liquidarExtension(clock.instant());
+      repository.saveProyeccion(prestamo);
+    }
+    return repository.findByPrestamo(prestamoId).stream()
+        .filter(t -> t.tipo() == TipoTransaccion.PAGO_EXTENSION && cambio.equals(t.cambioFechaPrestamoId())
+            && t.estado() == EstadoTransaccion.CONFIRMADA)
+        .flatMap(t -> crearReembolsoTarifa(t, correlationId).stream()).toList();
+  }
+
+  @Override @Transactional
+  public void registrarExtensionAplicada(UUID prestamoId, UUID cambio, String correlationId) {
+    if (!coordinatedExtensions) return;
+    PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(prestamoId).orElseThrow();
+    repository.findByPrestamo(prestamoId).stream()
+        .filter(t -> t.tipo() == TipoTransaccion.PAGO_EXTENSION && cambio.equals(t.cambioFechaPrestamoId())
+            && t.estado() == EstadoTransaccion.CONFIRMADA && repository.findByClaveIdempotencia("reembolso:" + t.id()).isEmpty())
+        .findFirst().ifPresent(t -> liberarTarifa(t, prestamo, correlationId));
+  }
+
+  private void exigirRetencion(UUID prestamoId, UUID cambio) {
+    if (!windows.active(prestamoId, cambio, clock.instant())) {
+      throw new BusinessConflictException("La extensión no tiene una retención vigente");
+    }
+  }
+
+  @Override @Transactional
   public void registrarDevolucion(UUID prestamoId, String correlationId) {
     PrestamoPagable prestamo = repository.lockProyeccionByPrestamo(prestamoId).orElseThrow(() -> new NotFoundException("Préstamo no proyectado"));
     UUID cambio = prestamo.cambioFechaPendienteId();
-    if (cambio == null) return;
+    if (cambio == null && !coordinatedExtensions) return;
     Instant now = clock.instant();
     prestamo.liquidarExtension(now);
     repository.saveProyeccion(prestamo);
@@ -281,6 +347,15 @@ public class PaymentApplicationService implements PaymentUseCases {
 
   @Override @Transactional
   public List<UUID> registrarReservaCancelada(UUID reservaId, String correlationId) {
+    return cancelarReserva(reservaId, null, correlationId);
+  }
+
+  @Override @Transactional
+  public List<UUID> registrarReservaCanceladaConCierre(UUID reservaId, List<UUID> resueltas, String correlationId) {
+    return cancelarReserva(reservaId, resueltas, correlationId);
+  }
+
+  private List<UUID> cancelarReserva(UUID reservaId, List<UUID> resueltas, String correlationId) {
     PrestamoPagable prestamo = repository.lockProyeccionByReserva(reservaId).orElse(null);
     if (prestamo == null) return List.of();
     EstadoPrestamoPagable previous = prestamo.estado();
@@ -299,7 +374,7 @@ public class PaymentApplicationService implements PaymentUseCases {
         audit.record("TRANSACCION", t.id(), "CANCELAR", EstadoTransaccion.PENDIENTE.name(), t.estado().name(), null, correlationId);
       }
     }
-    reembolsos.addAll(guarantees.devolverPorCancelacion(prestamo, correlationId));
+    reembolsos.addAll(guarantees.devolverPorCancelacion(prestamo, resueltas, correlationId));
     return reembolsos;
   }
 
@@ -319,9 +394,13 @@ public class PaymentApplicationService implements PaymentUseCases {
 
   private Optional<UUID> crearReembolsoTarifa(TransaccionEconomica pago, String correlationId) {
     String clave = "reembolso:" + pago.id();
+    return crearReembolsoTarifa(pago, pago.referenciaProveedor(), clave, correlationId);
+  }
+
+  private Optional<UUID> crearReembolsoTarifa(TransaccionEconomica pago, String referencia, String clave, String correlationId) {
     if (repository.findByClaveIdempotencia(clave).isPresent()) return Optional.empty();
     TransaccionEconomica reembolso = TransaccionEconomica.nueva(pago.prestamoId(), null, pago.cambioFechaPrestamoId(), null,
-        TipoTransaccion.REEMBOLSO_TARIFA, pago.monto(), pago.moneda(), null, pago.referenciaProveedor(), clave, clock.instant());
+        TipoTransaccion.REEMBOLSO_TARIFA, pago.monto(), pago.moneda(), null, referencia, clave, clock.instant());
     repository.saveTransaccion(reembolso);
     audit.record("TRANSACCION", reembolso.id(), "SOLICITAR_REEMBOLSO_TARIFA", null, reembolso.estado().name(), null, correlationId);
     return Optional.of(reembolso.id());

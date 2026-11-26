@@ -13,6 +13,14 @@ public class LiquidacionDeGarantiaService {
 
   public record Liquidacion(BigDecimal retencion, BigDecimal devolucion) {}
 
+  /** El importe de una afectación total corresponde al saldo que Evidencias comprobó al resolver. */
+  public Liquidacion liquidarMontoAutorizado(Garantia garantia, BigDecimal monto) {
+    if (monto.signum() <= 0) throw new IllegalArgumentException("La afectación total requiere un monto positivo");
+    BigDecimal saldo = garantia.saldoDisponible();
+    BigDecimal retencion = monto.setScale(2, RoundingMode.UNNECESSARY).min(saldo);
+    return new Liquidacion(retencion, saldo.subtract(retencion));
+  }
+
   /**
    * Las reglas siguen la validación del monolito (IncidentsService.resolve). Como el evento llega después de la
    * resolución, si el monto informado supera el saldo disponible se limita al saldo en lugar de fallar.
