@@ -45,7 +45,8 @@
     "reservaCancelada": {
       "description": "reservas.cancelada.v1 (Reservas, disponible).",
       "type": "object", "required": ["reserva_id"],
-      "properties": { "reserva_id": { "type": "string", "format": "uuid" }, "solicitud_id": { "type": "string", "format": "uuid" } }
+      "properties": { "reserva_id": { "type": "string", "format": "uuid" }, "solicitud_id": { "type": "string", "format": "uuid" },
+        "incidencias_resueltas": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } } }
     },
     "prestamoCreado": {
       "description": "Disponible (Préstamos). Default LOAN_CREATED_ROUTING_KEY=prestamos.creado.v1. Relaciona el préstamo con la reserva.",

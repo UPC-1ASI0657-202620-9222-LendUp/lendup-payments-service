@@ -347,6 +347,15 @@ public class PaymentApplicationService implements PaymentUseCases {
 
   @Override @Transactional
   public List<UUID> registrarReservaCancelada(UUID reservaId, String correlationId) {
+    return cancelarReserva(reservaId, null, correlationId);
+  }
+
+  @Override @Transactional
+  public List<UUID> registrarReservaCanceladaConCierre(UUID reservaId, List<UUID> resueltas, String correlationId) {
+    return cancelarReserva(reservaId, resueltas, correlationId);
+  }
+
+  private List<UUID> cancelarReserva(UUID reservaId, List<UUID> resueltas, String correlationId) {
     PrestamoPagable prestamo = repository.lockProyeccionByReserva(reservaId).orElse(null);
     if (prestamo == null) return List.of();
     EstadoPrestamoPagable previous = prestamo.estado();
@@ -365,7 +374,7 @@ public class PaymentApplicationService implements PaymentUseCases {
         audit.record("TRANSACCION", t.id(), "CANCELAR", EstadoTransaccion.PENDIENTE.name(), t.estado().name(), null, correlationId);
       }
     }
-    reembolsos.addAll(guarantees.devolverPorCancelacion(prestamo, correlationId));
+    reembolsos.addAll(guarantees.devolverPorCancelacion(prestamo, resueltas, correlationId));
     return reembolsos;
   }
 

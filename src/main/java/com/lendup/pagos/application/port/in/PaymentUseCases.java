@@ -30,4 +30,5 @@ public interface PaymentUseCases {
   /** El objeto ya se devolvió: una extensión sin pagar deja de corresponder. */
   void registrarDevolucion(UUID prestamoId, String correlationId);
   List<UUID> registrarReservaCancelada(UUID reservaId, String correlationId);
+  List<UUID> registrarReservaCanceladaConCierre(UUID reservaId, List<UUID> resueltas, String correlationId);
 }
