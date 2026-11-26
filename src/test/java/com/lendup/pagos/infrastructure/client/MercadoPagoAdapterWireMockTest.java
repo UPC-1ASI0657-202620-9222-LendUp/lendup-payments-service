@@ -23,8 +23,12 @@ class MercadoPagoAdapterWireMockTest {
 
   @BeforeEach void setup() {
     server.resetAll();
-    adapter = new MercadoPagoAdapter(new IntegrationProperties(null, new IntegrationProperties.MercadoPago(server.baseUrl(), "TEST-access-token", "secret",
-        "https://pagos.lendup.test/api/v1/webhooks/mercado-pago", "https://app.lendup.test/payments/return?result=success", "", "", false, 500, 800)));
+    adapter = adapter(false);
+  }
+
+  private static MercadoPagoAdapter adapter(boolean sandboxCheckout) {
+    return new MercadoPagoAdapter(new IntegrationProperties(null, new IntegrationProperties.MercadoPago(server.baseUrl(), "TEST-access-token", "secret",
+        "https://pagos.lendup.test/api/v1/webhooks/mercado-pago", "https://app.lendup.test/payments/return?result=success", "", "", sandboxCheckout, 500, 800)));
   }
 
   @Test void creaPreferenciaConExternalReferenceYDevuelveInitPoint() {
@@ -49,6 +53,29 @@ class MercadoPagoAdapterWireMockTest {
     assertEquals(ResultadoProveedor.RECHAZADO, MercadoPagoAdapter.paymentResult("rejected"));
     assertEquals(ResultadoProveedor.CANCELADO, MercadoPagoAdapter.paymentResult("cancelled"));
     assertEquals(ResultadoProveedor.EN_PROCESO, MercadoPagoAdapter.paymentResult("in_process"));
+  }
+
+  @Test void eligeSandboxInitPointCuandoSeSolicitaCheckoutDePrueba() {
+    server.stubFor(post(urlPathEqualTo("/checkout/preferences")).willReturn(okJson("""
+        {"id":"pref-1","init_point":"https://checkout.example/live",
+         "sandbox_init_point":"https://checkout.example/test"}
+        """)));
+    var request = new CheckoutRequest(UUID.randomUUID(), UUID.randomUUID(),
+        "LendUp - Tarifa de prueba", new BigDecimal("60.00"), "PEN");
+
+    assertEquals("https://checkout.example/test", adapter(true).crearCheckout(request));
+    server.verify(1, postRequestedFor(urlPathEqualTo("/checkout/preferences")));
+  }
+
+  @Test void noDevuelveCheckoutSiLaPreferenciaCareceDeEnlaces() {
+    server.stubFor(post(urlPathEqualTo("/checkout/preferences")).willReturn(okJson("""
+        {"id":"pref-1"}
+        """)));
+    var request = new CheckoutRequest(UUID.randomUUID(), UUID.randomUUID(),
+        "LendUp - Tarifa de prueba", new BigDecimal("60.00"), "PEN");
+
+    assertThrows(DependencyUnavailableException.class, () -> adapter(true).crearCheckout(request));
+    server.verify(1, postRequestedFor(urlPathEqualTo("/checkout/preferences")));
   }
 
   @Test void pagoInexistenteOIdNoNumericoNoEsError() {

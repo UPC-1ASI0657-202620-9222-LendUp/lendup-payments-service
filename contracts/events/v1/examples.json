@@ -65,12 +65,17 @@
     "prestamos.extension-aceptada.v1": {
       "event_id": "77777777-7777-4777-8777-777777777773", "event_type": "ExtensionAceptada", "event_version": 1, "aggregate_version": 4,
       "aggregate_id": "c3333333-3333-4333-8333-333333333333", "occurred_at": "2026-11-11T12:00:00Z", "correlation_id": "req-011",
-      "payload": { "prestamo_id": "c3333333-3333-4333-8333-333333333333", "cambio_fecha_prestamo_id": "88888888-8888-4888-8888-888888888888", "costo_adicional": 20.00, "moneda": "PEN" }
+      "payload": { "prestamo_id": "c3333333-3333-4333-8333-333333333333", "cambio_fecha_prestamo_id": "88888888-8888-4888-8888-888888888888", "costo_adicional": 20.00, "moneda": "PEN", "retencion_expira_en": "2026-11-11T12:15:00Z" }
+    },
+    "reservas.extension-retencion-rechazada.v1": {
+      "event_id": "77777777-7777-4777-8777-777777777783", "event_type": "ExtensionRetencionRechazada", "event_version": 1, "aggregate_version": 2,
+      "aggregate_id": "88888888-8888-4888-8888-888888888888", "occurred_at": "2026-11-11T12:15:00Z", "correlation_id": "req-011",
+      "payload": { "prestamo_id": "c3333333-3333-4333-8333-333333333333", "cambio_fecha_prestamo_id": "88888888-8888-4888-8888-888888888888", "motivo": "EXPIRADA" }
     },
     "prestamos.finalizado.v1": {
       "event_id": "77777777-7777-4777-8777-777777777774", "event_type": "PrestamoFinalizado", "event_version": 1, "aggregate_version": 6,
       "aggregate_id": "c3333333-3333-4333-8333-333333333333", "occurred_at": "2026-11-13T10:00:00Z", "correlation_id": "req-012",
-      "payload": { "prestamo_id": "c3333333-3333-4333-8333-333333333333" }
+      "payload": { "prestamo_id": "c3333333-3333-4333-8333-333333333333", "incidencias_resueltas": ["99999999-9999-4999-8999-999999999999"] }
     },
     "evidencias.incidencia-resuelta.v1 (pendiente)": {
       "event_id": "77777777-7777-4777-8777-777777777775", "event_type": "IncidenciaResuelta", "event_version": 1, "aggregate_version": 3,
