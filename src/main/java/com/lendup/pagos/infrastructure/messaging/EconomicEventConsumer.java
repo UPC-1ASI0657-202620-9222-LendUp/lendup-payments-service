@@ -11,6 +11,7 @@ import com.lendup.pagos.infrastructure.persistence.entity.ProcessedEventEntity;
 import com.lendup.pagos.infrastructure.persistence.repository.ProcessedEventJpaRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.core.type.TypeReference;
@@ -45,12 +47,12 @@ public class EconomicEventConsumer {
   }
 
   @RabbitListener(queues = RabbitConfiguration.QUEUE)
-  @Transactional
+  @Transactional(isolation = Isolation.READ_COMMITTED)
   public void consume(Message message) {
     handle(message.getMessageProperties().getReceivedRoutingKey(), message.getBody());
   }
 
-  @Transactional
+  @Transactional(isolation = Isolation.READ_COMMITTED)
   public void handle(String routingKey, byte[] body) {
     Map<String, Object> event = json.readValue(body, new TypeReference<Map<String, Object>>() {});
     UUID eventId = UUID.fromString(text(event, "event_id"));
@@ -76,15 +78,38 @@ public class EconomicEventConsumer {
     if (routes.loanCreatedRoutingKey().equals(routingKey)) { payments.vincularPrestamo(uuid(p, "reserva_id"), uuid(p, "prestamo_id"), correlationId); return List.of(); }
     if (routes.loanActivatedRoutingKey().equals(routingKey)) { payments.registrarPrestamoActivado(uuid(p, "prestamo_id"), correlationId); return List.of(); }
     if (routes.extensionAcceptedRoutingKey().equals(routingKey)) {
-      payments.registrarExtensionAceptada(uuid(p, "prestamo_id"), uuid(p, "cambio_fecha_prestamo_id"), decimal(p, "costo_adicional"), correlationId);
+      UUID prestamo = uuid(p, "prestamo_id"), cambio = uuid(p, "cambio_fecha_prestamo_id");
+      if (p.get("retencion_expira_en") != null) {
+        payments.registrarExtensionConRetencion(prestamo, cambio, decimal(p, "costo_adicional"),
+            Instant.parse(text(p, "retencion_expira_en")), correlationId);
+      } else {
+        payments.registrarExtensionAceptada(prestamo, cambio, decimal(p, "costo_adicional"), correlationId);
+      }
+      return List.of();
+    }
+    if (RabbitConfiguration.HOLD_REJECTED.equals(routingKey)) {
+      return payments.registrarRetencionRechazada(uuid(p, "prestamo_id"), uuid(p, "cambio_fecha_prestamo_id"), correlationId);
+    }
+    if (RabbitConfiguration.LOAN_DATE_UPDATED.equals(routingKey)) {
+      if ("EXTENSION".equals(p.get("tipo"))) {
+        payments.registrarExtensionAplicada(uuid(p, "prestamo_id"), uuid(p, "cambio_fecha_prestamo_id"), correlationId);
+      }
       return List.of();
     }
     if (routes.loanReturnedRoutingKey().equals(routingKey)) { payments.registrarDevolucion(uuid(p, "prestamo_id"), correlationId); return List.of(); }
     if (routes.incidentReportedRoutingKey().equals(routingKey)) { guarantees.registrarIncidenciaReportada(uuid(p, "prestamo_id"), uuid(p, "incidencia_id"), correlationId); return List.of(); }
-    if (routes.loanFinishedRoutingKey().equals(routingKey)) return guarantees.registrarPrestamoFinalizado(uuid(p, "prestamo_id"), correlationId);
+    if (routes.loanFinishedRoutingKey().equals(routingKey)) {
+      if (p.get("incidencias_resueltas") instanceof List<?> resueltas) {
+        return guarantees.registrarPrestamoFinalizadoConCierre(uuid(p, "prestamo_id"),
+            resueltas.stream().map(id -> UUID.fromString(id.toString())).toList(), correlationId);
+      }
+      return guarantees.registrarPrestamoFinalizado(uuid(p, "prestamo_id"), correlationId);
+    }
     if (routes.incidentResolvedRoutingKey().equals(routingKey)) {
-      return guarantees.registrarIncidenciaResuelta(new IncidenciaResueltaCommand(uuid(p, "incidencia_id"), uuid(p, "prestamo_id"),
-          DecisionGarantia.valueOf(text(p, "decision_garantia")), optionalDecimal(p, "monto_garantia_afectado")), correlationId);
+      var command = new IncidenciaResueltaCommand(uuid(p, "incidencia_id"), uuid(p, "prestamo_id"),
+          DecisionGarantia.valueOf(text(p, "decision_garantia")), optionalDecimal(p, "monto_garantia_afectado"));
+      if (p.get("moneda") != null) return guarantees.registrarIncidenciaResuelta(command, text(p, "moneda"), correlationId);
+      return guarantees.registrarIncidenciaResuelta(command, correlationId);
     }
     throw new IllegalArgumentException("Routing key no soportada: " + routingKey);
   }

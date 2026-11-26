@@ -63,6 +63,7 @@ class MySqlPaymentsIT {
   @Autowired TransaccionEconomicaJpaRepository transacciones; @Autowired GarantiaJpaRepository garantias; @Autowired PrestamoPagableJpaRepository proyecciones;
   @Autowired NotificacionProveedorJpaRepository notificaciones; @Autowired OutboxJpaRepository outbox; @Autowired ProcessedEventJpaRepository processed;
   @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc; @Autowired AuditJpaRepository audits; @Autowired PlatformTransactionManager transactionManager;
+  @Autowired com.lendup.pagos.application.service.GuaranteeApplicationService guarantees;
   MockMvc mvc; UUID prestamo, reserva;
 
   @BeforeEach void setup() {
@@ -103,6 +104,38 @@ class MySqlPaymentsIT {
 
   @Test void lasFechasAcordadasSeGuardanSinCorrimientoDeZonaHoraria() {
     assertEquals("2026-11-10 09:00:00.000000", jdbc.queryForObject("select date_format(desde, '%Y-%m-%d %H:%i:%s.%f') from prestamos_pagables", String.class));
+  }
+
+  @Test void cierreEsperaResolucionDeclaradaYReintentaReembolsoConLaMismaClave() {
+    org.springframework.test.util.ReflectionTestUtils.setField(guarantees, "deferredGuarantees", true);
+    try {
+      var pending = guarantees.constituirGarantia(TestAuthConfiguration.usuario("prestatario"),
+          new com.lendup.pagos.application.port.in.PaymentViews.ConstituirGarantiaCommand(prestamo, "MERCADO_PAGO", "garantia-manifiesto"), "it");
+      payments.aplicarResultadoCobro(new com.lendup.pagos.application.port.out.PaymentGatewayPort.ProviderPayment(
+          "919", pending.id().toString(), ResultadoProveedor.APROBADO, "approved", new BigDecimal("50.00"), "PEN", BigDecimal.ZERO), "it");
+      UUID incident = UUID.randomUUID();
+      assertTrue(guarantees.registrarPrestamoFinalizadoConCierre(prestamo, List.of(incident), "it").isEmpty());
+      var decision = new com.lendup.pagos.application.port.in.PaymentViews.IncidenciaResueltaCommand(
+          incident, prestamo, DecisionGarantia.AFECTACION_PARCIAL, new BigDecimal("20.00"));
+      var refunds = guarantees.registrarIncidenciaResuelta(decision, "PEN", "it");
+      assertEquals(1, refunds.size());
+      assertTrue(guarantees.registrarIncidenciaResuelta(decision, "PEN", "it").isEmpty());
+      assertTrue(guarantees.registrarPrestamoFinalizadoConCierre(prestamo, List.of(incident), "it").isEmpty());
+      var start = transacciones.findById(refunds.getFirst()).orElseThrow().toDomain();
+      assertEquals(new BigDecimal("30.00"), start.monto());
+      mercadoPago.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlPathEqualTo("/v1/payments/919/refunds"))
+          .willReturn(aResponse().withStatus(503)));
+      payments.ejecutarReembolso(start.id(), "it");
+      assertEquals(EstadoTransaccion.PENDIENTE, transacciones.findById(start.id()).orElseThrow().toDomain().estado());
+      mercadoPago.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlPathEqualTo("/v1/payments/919/refunds"))
+          .willReturn(okJson("{\"id\":9191,\"status\":\"approved\"}")));
+      payments.ejecutarReembolso(start.id(), "it");
+      mercadoPago.verify(2, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(urlPathEqualTo("/v1/payments/919/refunds"))
+          .withHeader("X-Idempotency-Key", equalTo(start.claveIdempotencia())));
+      assertEquals(EstadoTransaccion.CONFIRMADA, transacciones.findById(start.id()).orElseThrow().toDomain().estado());
+    } finally {
+      org.springframework.test.util.ReflectionTestUtils.setField(guarantees, "deferredGuarantees", false);
+    }
   }
 
   @Test void incidenciasYComisionSeGuardanEnLasColumnasNuevas() throws Exception {

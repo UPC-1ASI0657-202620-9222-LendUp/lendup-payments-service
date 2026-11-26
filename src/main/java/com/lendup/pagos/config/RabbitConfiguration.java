@@ -3,11 +3,13 @@ import java.util.stream.Stream; import org.springframework.amqp.core.Binding; im
 @Configuration public class RabbitConfiguration {
   public static final String EVENTS_EXCHANGE="lendup.domain.events"; public static final String DLX="lendup.domain.events.dlx"; public static final String QUEUE="payments.events.v1"; public static final String DLQ="payments.events.v1.dlq";
   public static final String RESERVATION_CONFIRMED="reservas.confirmada.v1"; public static final String RESERVATION_CANCELLED="reservas.cancelada.v1";
+  public static final String HOLD_REJECTED = "reservas.extension-retencion-rechazada.v1";
+  public static final String LOAN_DATE_UPDATED = "prestamos.fecha-devolucion-actualizada.v1";
   @Bean TopicExchange domainExchange(){return ExchangeBuilder.topicExchange(EVENTS_EXCHANGE).durable(true).build();} @Bean DirectExchange deadLetterExchange(){return ExchangeBuilder.directExchange(DLX).durable(true).build();}
   @Bean Queue paymentsEventsQueue(){return QueueBuilder.durable(QUEUE).deadLetterExchange(DLX).deadLetterRoutingKey(DLQ).build();} @Bean Queue paymentsEventsDlq(){return QueueBuilder.durable(DLQ).build();}
   @Bean Binding dlqBinding(Queue paymentsEventsDlq,DirectExchange deadLetterExchange){return BindingBuilder.bind(paymentsEventsDlq).to(deadLetterExchange).with(DLQ);}
   @Bean Declarables consumedEventBindings(Queue paymentsEventsQueue,TopicExchange domainExchange,EventRoutingProperties routes){
-    return new Declarables(Stream.of(RESERVATION_CONFIRMED,RESERVATION_CANCELLED,routes.loanCreatedRoutingKey(),routes.loanActivatedRoutingKey(),routes.loanReturnedRoutingKey(),routes.loanFinishedRoutingKey(),routes.extensionAcceptedRoutingKey(),routes.incidentReportedRoutingKey(),routes.incidentResolvedRoutingKey())
+    return new Declarables(Stream.of(RESERVATION_CONFIRMED,RESERVATION_CANCELLED,HOLD_REJECTED,LOAN_DATE_UPDATED,routes.loanCreatedRoutingKey(),routes.loanActivatedRoutingKey(),routes.loanReturnedRoutingKey(),routes.loanFinishedRoutingKey(),routes.extensionAcceptedRoutingKey(),routes.incidentReportedRoutingKey(),routes.incidentResolvedRoutingKey())
         .distinct().map(key->(Declarable)BindingBuilder.bind(paymentsEventsQueue).to(domainExchange).with(key)).toList());
   }
 }

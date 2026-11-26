@@ -24,6 +24,9 @@ public interface PaymentUseCases {
   void vincularPrestamo(UUID reservaId, UUID prestamoId, String correlationId);
   void registrarPrestamoActivado(UUID prestamoId, String correlationId);
   void registrarExtensionAceptada(UUID prestamoId, UUID cambioFechaPrestamoId, BigDecimal costoAdicional, String correlationId);
+  void registrarExtensionConRetencion(UUID prestamoId, UUID cambio, BigDecimal costo, Instant expiraEn, String correlationId);
+  List<UUID> registrarRetencionRechazada(UUID prestamoId, UUID cambio, String correlationId);
+  void registrarExtensionAplicada(UUID prestamoId, UUID cambio, String correlationId);
   /** El objeto ya se devolvió: una extensión sin pagar deja de corresponder. */
   void registrarDevolucion(UUID prestamoId, String correlationId);
   List<UUID> registrarReservaCancelada(UUID reservaId, String correlationId);
