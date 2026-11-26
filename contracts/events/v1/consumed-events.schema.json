@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://lendup.example/contracts/events/v1/consumed-events.schema.json",
   "title": "Events consumed by Payments v1",
-  "description": "Envelope estándar de lendup.domain.events. Reservas y Préstamos ya publican los suyos. Los de Evidencias son contratos PROPUESTOS: su microservicio aún no existe. Las routing keys son configurables.",
+  "description": "Envelope estándar de lendup.domain.events. Los eventos de incidencias usan contratos candidatos hasta que se integre Evidencias. Las routing keys son configurables.",
   "type": "object",
   "required": ["event_id", "event_type", "event_version", "aggregate_id", "occurred_at", "correlation_id", "payload"],
   "properties": {
@@ -21,6 +21,8 @@
     { "if": { "properties": { "event_type": { "const": "PrestamoCreado" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamoCreado" } } } },
     { "if": { "properties": { "event_type": { "enum": ["PrestamoActivado", "DevolucionRegistrada", "PrestamoFinalizado"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/prestamo" } } } },
     { "if": { "properties": { "event_type": { "const": "ExtensionAceptada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/extensionAceptada" } } } },
+    { "if": { "properties": { "event_type": { "const": "ExtensionRetencionRechazada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/cambioFecha" } } } },
+    { "if": { "properties": { "event_type": { "const": "FechaDevolucionActualizada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/cambioFecha" } } } },
     { "if": { "properties": { "event_type": { "const": "IncidenciaReportada" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/incidenciaReportada" } } } },
     { "if": { "properties": { "event_type": { "const": "IncidenciaResuelta" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/incidenciaResuelta" } } } }
   ],
@@ -53,7 +55,10 @@
     "prestamo": {
       "description": "Disponibles (Préstamos). PrestamoActivado (LOAN_ACTIVATED_ROUTING_KEY=prestamos.activado.v1), DevolucionRegistrada (LOAN_RETURNED_ROUTING_KEY=prestamos.devolucion-registrada.v1) y PrestamoFinalizado (LOAN_FINISHED_ROUTING_KEY=prestamos.finalizado.v1).",
       "type": "object", "required": ["prestamo_id"],
-      "properties": { "prestamo_id": { "type": "string", "format": "uuid" } }
+      "properties": {
+        "prestamo_id": { "type": "string", "format": "uuid" },
+        "incidencias_resueltas": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } }
+      }
     },
     "extensionAceptada": {
       "description": "Disponible (Préstamos). EXTENSION_ACCEPTED_ROUTING_KEY=prestamos.extension-aceptada.v1.",
@@ -62,7 +67,15 @@
         "prestamo_id": { "type": "string", "format": "uuid" },
         "cambio_fecha_prestamo_id": { "type": "string", "format": "uuid" },
         "costo_adicional": { "type": "number", "exclusiveMinimum": 0 },
-        "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" }
+        "moneda": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "retencion_expira_en": { "type": "string", "format": "date-time" }
+      }
+    },
+    "cambioFecha": {
+      "type": "object", "required": ["prestamo_id", "cambio_fecha_prestamo_id"],
+      "properties": {
+        "prestamo_id": { "type": "string", "format": "uuid" },
+        "cambio_fecha_prestamo_id": { "type": "string", "format": "uuid" }
       }
     },
     "incidenciaReportada": {
